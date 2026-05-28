@@ -7,6 +7,7 @@ import {
 } from "@/lib/feishu";
 import { getEnv } from "@/lib/env";
 import { setSession } from "@/lib/auth";
+import { buildOAuthFailureDiagnostics } from "@/lib/oauth-debug";
 
 export const dynamic = "force-dynamic";
 
@@ -24,14 +25,17 @@ function buildOAuthErrorResponse(input: {
           redirectUri: input.redirectUri,
           codeExists: input.codeExists
         });
+  const diagnostics = buildOAuthFailureDiagnostics({
+    redirectUri: feishuError.redirectUri,
+    tokenResponse: feishuError.response
+  });
 
   console.error("[Feishu OAuth callback error]", {
     message: feishuError.message,
     feishuCode: feishuError.feishuCode,
     feishuMsg: feishuError.feishuMsg,
-    redirectUri: feishuError.redirectUri,
     codeExists: feishuError.codeExists,
-    response: feishuError.response
+    ...diagnostics
   });
 
   return NextResponse.json(
@@ -39,11 +43,13 @@ function buildOAuthErrorResponse(input: {
       error: feishuError.message,
       feishu_error_code: feishuError.feishuCode ?? null,
       feishu_error_msg: feishuError.feishuMsg ?? null,
-      redirect_uri: feishuError.redirectUri,
       code_exists: feishuError.codeExists,
-      token_response: feishuError.response ?? null
+      ...diagnostics
     },
-    { status: input.status || 500 }
+    {
+      status: input.status || 500,
+      headers: { "Cache-Control": "no-store" }
+    }
   );
 }
 
@@ -69,8 +75,6 @@ export async function GET(request: Request) {
 
   try {
     const token = await exchangeOAuthCode(code);
-    console.log("[Feishu OAuth callback token]", JSON.stringify(token, null, 2));
-
     const userAccessToken = extractUserAccessToken(token);
     if (!token || !userAccessToken) {
       throw new FeishuOAuthError({
@@ -84,7 +88,28 @@ export async function GET(request: Request) {
     }
 
     const user = await getFeishuUserInfo(userAccessToken);
-    await setSession(user.open_id, user.name);
+    console.log("[Feishu OAuth user info]", {
+      open_id: user.open_id,
+      user_id: user.user_id,
+      name: user.name
+    });
+
+    if (!user.user_id) {
+      throw new FeishuOAuthError({
+        message:
+          "飞书用户信息未返回 user_id，无法按人员表「用户ID」识别用户。请确认登录授权包含 auth:user.id:read，且应用已开通“获取用户 user ID”字段权限。",
+        redirectUri,
+        codeExists: true
+      });
+    }
+
+    await setSession(
+      {
+        userId: user.user_id,
+        openId: user.open_id
+      },
+      user.name
+    );
 
     return NextResponse.redirect(`${env.appUrl}/`);
   } catch (error) {

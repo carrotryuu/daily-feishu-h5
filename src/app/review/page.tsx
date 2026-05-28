@@ -31,7 +31,9 @@ type ReviewData = {
 };
 
 type UserRecognitionDetails = {
-  currentLoginUserId?: string | null;
+  feishuOpenId?: string | null;
+  feishuUserId?: string | null;
+  matchedUserId?: string | null;
   matchedPeopleField?: string;
   peopleTableQueried?: boolean;
   peopleTableHasUserId?: boolean | null;
@@ -42,12 +44,14 @@ type UserRecognitionDetails = {
 
 function formatError(payload: { error?: string; userRecognition?: UserRecognitionDetails }) {
   if (!payload.userRecognition) return payload.error || "";
-  if (payload.error?.includes("当前登录用户ID：")) return payload.error;
+  if (payload.error?.includes("matchedUserId：")) return payload.error;
 
   const details = payload.userRecognition;
   return [
     payload.error || "无法识别当前登录用户。",
-    `当前登录用户ID：${details.currentLoginUserId || "未获取到"}`,
+    `feishu open_id：${details.feishuOpenId || "未获取到"}`,
+    `feishu user_id：${details.feishuUserId || "未获取到"}`,
+    `实际用于匹配人员表的 matchedUserId：${details.matchedUserId || "未获取到"}`,
     `人员表是否查询成功：${details.peopleTableQueried ? "是" : "否"}`,
     `人员表中是否存在该用户ID：${
       details.peopleTableHasUserId == null

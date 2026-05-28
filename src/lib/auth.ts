@@ -9,21 +9,25 @@ const COOKIE_NAME = "daily_session";
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
 type Session = {
-  openId: string;
+  userId?: string;
+  openId?: string;
   name?: string;
   expiresAt: number;
 };
 
 type SessionIdentity = {
+  userId?: string;
   openId?: string;
-  source: "feishu_session" | "dev_open_id" | "none";
+  source: "feishu_session" | "dev_open_id" | "none" | "legacy_open_id_session";
   devOpenIdConfigured: boolean;
   hasSessionCookie: boolean;
   sessionCookieValid: boolean;
 };
 
 type UserRecognitionDetails = {
-  currentLoginUserId: string | null;
+  feishuOpenId: string | null;
+  feishuUserId: string | null;
+  matchedUserId: string | null;
   userIdSource: SessionIdentity["source"];
   matchedPeopleField: string;
   peopleTableQueried: boolean;
@@ -65,12 +69,19 @@ function decodeSession(value?: string): Session | undefined {
   return session;
 }
 
-export async function setSession(openId: string, name?: string) {
+export async function setSession(
+  ids: {
+    userId: string;
+    openId?: string;
+  },
+  name?: string
+) {
   const cookieStore = await cookies();
   cookieStore.set(
     COOKIE_NAME,
     encodeSession({
-      openId,
+      userId: ids.userId,
+      openId: ids.openId,
       name,
       expiresAt: Date.now() + MAX_AGE_SECONDS * 1000
     }),
@@ -94,8 +105,9 @@ export async function getSessionIdentity(): Promise<SessionIdentity> {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get(COOKIE_NAME)?.value;
   const session = decodeSession(sessionCookie);
-  if (session?.openId) {
+  if (session?.userId) {
     return {
+      userId: session.userId,
       openId: session.openId,
       source: "feishu_session",
       devOpenIdConfigured: Boolean(env.devOpenId),
@@ -104,9 +116,19 @@ export async function getSessionIdentity(): Promise<SessionIdentity> {
     };
   }
 
+  if (session?.openId) {
+    return {
+      openId: session.openId,
+      source: "legacy_open_id_session",
+      devOpenIdConfigured: Boolean(env.devOpenId),
+      hasSessionCookie: Boolean(sessionCookie),
+      sessionCookieValid: true
+    };
+  }
+
   if (process.env.NODE_ENV !== "production" && env.devOpenId) {
     return {
-      openId: env.devOpenId,
+      userId: env.devOpenId,
       source: "dev_open_id",
       devOpenIdConfigured: true,
       hasSessionCookie: Boolean(sessionCookie),
@@ -123,7 +145,11 @@ export async function getSessionIdentity(): Promise<SessionIdentity> {
 }
 
 export async function getSessionOpenId() {
-  return (await getSessionIdentity()).openId;
+  return (await getSessionIdentity()).userId;
+}
+
+export async function getSessionUserId() {
+  return (await getSessionIdentity()).userId;
 }
 
 function userRecognitionResponse(
@@ -148,7 +174,9 @@ function userRecognitionResponse(
 function buildUserRecognitionMessage(details: UserRecognitionDetails) {
   return [
     "无法识别当前登录用户。",
-    `当前登录用户ID：${details.currentLoginUserId || "未获取到"}`,
+    `feishu open_id：${details.feishuOpenId || "未获取到"}`,
+    `feishu user_id：${details.feishuUserId || "未获取到"}`,
+    `实际用于匹配人员表的 matchedUserId：${details.matchedUserId || "未获取到"}`,
     `人员表是否查询成功：${details.peopleTableQueried ? "是" : "否"}`,
     `人员表中是否存在该用户ID：${
       details.peopleTableHasUserId == null
@@ -166,9 +194,11 @@ function buildUserRecognitionMessage(details: UserRecognitionDetails) {
 
 export async function getCurrentUser(): Promise<CurrentUser> {
   const identity = await getSessionIdentity();
-  const openId = identity.openId;
+  const matchedUserId = identity.userId;
   const baseDetails = {
-    currentLoginUserId: openId ?? null,
+    feishuOpenId: identity.openId ?? null,
+    feishuUserId: identity.userId ?? null,
+    matchedUserId: matchedUserId ?? null,
     userIdSource: identity.source,
     matchedPeopleField: TABLE_FIELDS.people.userId,
     devOpenIdConfigured: identity.devOpenIdConfigured,
@@ -176,7 +206,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
     sessionCookieValid: identity.sessionCookieValid
   };
 
-  if (!openId) {
+  if (!matchedUserId) {
     const details: UserRecognitionDetails = {
       ...baseDetails,
       peopleTableQueried: false,
@@ -202,7 +232,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
     throw userRecognitionResponse(500, buildUserRecognitionMessage(details), details);
   }
 
-  const person = people.find((record) => record.fields.userId === openId)?.fields;
+  const person = people.find((record) => record.fields.userId === matchedUserId)?.fields;
   if (!person) {
     const details: UserRecognitionDetails = {
       ...baseDetails,
@@ -234,7 +264,9 @@ export async function getCurrentUser(): Promise<CurrentUser> {
     identity.source === "dev_open_id" ? "dev_open_id" : "feishu_session";
 
   console.info("[User recognized]", {
-    currentLoginUserId: openId,
+    feishuOpenId: identity.openId ?? null,
+    feishuUserId: identity.userId ?? null,
+    matchedUserId,
     userIdSource: sessionSource,
     matchedPeopleField: TABLE_FIELDS.people.userId,
     enabled: person.enabled,
@@ -242,7 +274,8 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   });
 
   return {
-    sessionOpenId: openId,
+    sessionUserId: matchedUserId,
+    sessionOpenId: identity.openId,
     sessionSource,
     person
   };

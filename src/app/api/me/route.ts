@@ -10,7 +10,11 @@ export async function GET() {
     const user = await getCurrentUser();
     return jsonOk({
       user: user.person,
-      currentLoginUserId: user.sessionOpenId,
+      userId: user.sessionUserId,
+      feishuOpenId: user.sessionOpenId ?? null,
+      feishuUserId: user.sessionUserId,
+      matchedUserId: user.sessionUserId,
+      currentLoginUserId: user.sessionUserId,
       userIdSource: user.sessionSource,
       matchedPeopleField: TABLE_FIELDS.people.userId,
       devOpenIdConfigured: Boolean(getEnv().devOpenId)

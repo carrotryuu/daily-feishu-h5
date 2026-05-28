@@ -4,9 +4,23 @@ export function jsonOk<T>(data: T, init?: ResponseInit) {
   return NextResponse.json(data, init);
 }
 
-export function jsonError(error: unknown) {
+export async function jsonError(error: unknown) {
   if (error instanceof Response) {
-    return error;
+    const contentType = error.headers.get("content-type") || "";
+    const body = await error.text().catch(() => "");
+
+    if (contentType.includes("application/json")) {
+      return new Response(body, {
+        status: error.status,
+        statusText: error.statusText,
+        headers: { "Content-Type": contentType }
+      });
+    }
+
+    return NextResponse.json(
+      { error: body || error.statusText || "请求处理失败" },
+      { status: error.status }
+    );
   }
 
   const message = error instanceof Error ? error.message : "请求处理失败";

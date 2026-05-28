@@ -105,7 +105,8 @@ export type PushLogRecord = {
 };
 
 export type CurrentUser = {
-  sessionOpenId: string;
+  sessionUserId: string;
+  sessionOpenId?: string;
   sessionSource: "feishu_session" | "dev_open_id";
   person: Person;
 };

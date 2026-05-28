@@ -148,9 +148,6 @@ export async function exchangeOAuthCode(code: string) {
     })
   });
   const payload = (await response.json()) as FeishuOAuthTokenResponse;
-
-  console.log("[Feishu OAuth token response]", JSON.stringify(payload, null, 2));
-
   const userAccessToken = extractUserAccessToken(payload);
 
   if (!response.ok || payload.code !== 0 || !userAccessToken) {
@@ -181,6 +178,7 @@ export async function getFeishuUserInfo(userAccessToken: string) {
     en_name?: string;
     avatar_url?: string;
     open_id: string;
+    user_id?: string;
     union_id?: string;
     email?: string;
   }>("/open-apis/authen/v1/user_info", {
