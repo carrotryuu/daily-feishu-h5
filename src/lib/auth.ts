@@ -88,7 +88,7 @@ export async function setSession(
     {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: (process.env.APP_URL || "").startsWith("https://"),
       maxAge: MAX_AGE_SECONDS,
       path: "/"
     }
