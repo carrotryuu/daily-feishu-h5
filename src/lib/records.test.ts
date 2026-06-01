@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DAILY_STATUS, DAILY_TYPES, TABLE_FIELDS, YES_NO } from "./constants";
-import { mapAccount, mapDaily, toDailyFields } from "./records";
+import {
+  ACCOUNT_TYPES,
+  DAILY_STATUS,
+  DAILY_TYPES,
+  ROLES,
+  TABLE_FIELDS,
+  YES_NO
+} from "./constants";
+import { mapAccount, mapDaily, mapPerson, toDailyFields } from "./records";
 
 test("maps account startCredits from supported Feishu field aliases", () => {
   assert.equal(mapAccount({ 起始积分: 11 }).startCredits, 11);
@@ -20,6 +27,30 @@ test("maps account bound user and name from supported Feishu aliases", () => {
   assert.equal(account.animatorName, "张三");
 });
 
+test("maps resolved people group option name", () => {
+  const person = mapPerson({
+    [TABLE_FIELDS.people.userId]: "director_1",
+    [TABLE_FIELDS.people.name]: "孙导",
+    [TABLE_FIELDS.people.role]: ROLES.director,
+    [TABLE_FIELDS.people.group]: "孙导组",
+    [TABLE_FIELDS.people.enabled]: YES_NO.yes
+  });
+
+  assert.equal(person.group, "孙导组");
+});
+
+test("maps resolved account type option name", () => {
+  const account = mapAccount({
+    [TABLE_FIELDS.accounts.accountName]: "赵国微生产账号",
+    [TABLE_FIELDS.accounts.platform]: "LIBTV",
+    [TABLE_FIELDS.accounts.accountType]: ACCOUNT_TYPES.personal,
+    [TABLE_FIELDS.accounts.accountStatus]: "启用"
+  });
+
+  assert.equal(account.accountName, "赵国微生产账号");
+  assert.equal(account.accountType, ACCOUNT_TYPES.personal);
+});
+
 test("maps other period content from daily fields", () => {
   const daily = mapDaily({
     [TABLE_FIELDS.daily.nonProductionNote]: "筹备说明"
@@ -27,6 +58,16 @@ test("maps other period content from daily fields", () => {
 
   assert.equal(daily.dailyType, DAILY_TYPES.other);
   assert.equal(daily.nonProductionNote, "筹备说明");
+});
+
+test("maps resolved daily group option name", () => {
+  const daily = mapDaily({
+    [TABLE_FIELDS.daily.group]: "孙导组",
+    [TABLE_FIELDS.daily.status]: DAILY_STATUS.pending
+  });
+
+  assert.equal(daily.group, "孙导组");
+  assert.equal(daily.status, DAILY_STATUS.pending);
 });
 
 test("infers other daily type when type field is empty but other period content exists", () => {

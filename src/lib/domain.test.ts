@@ -56,6 +56,18 @@ test("calculates consumed credits when changed account is no text", () => {
   );
 });
 
+test("calculates production consumed credits from previous and remaining credits", () => {
+  assert.equal(
+    calculateConsumedCredits({
+      changedAccount: false,
+      previousCredits: 40000,
+      newAccountStartCredits: 0,
+      remainingCredits: 30000
+    }),
+    10000
+  );
+});
+
 test("negative credits keep submitted daily pending and excluded from ranking", () => {
   assert.deepEqual(
     defaultDailyDecision({

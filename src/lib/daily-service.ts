@@ -11,7 +11,7 @@ import {
   buildDailyAccountsDiagnostics,
   filterDailyAccountsForUser
 } from "./account-visibility";
-import { BitableError, createRecord } from "./bitable";
+import { BitableError, createRecord, tableHasField } from "./bitable";
 import {
   calculateConsumedCredits,
   defaultDailyDecision
@@ -194,35 +194,72 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
     date
   });
 
-  const record: DailyRecord = {
+  const record = buildProductionDailyRecord({
+    user,
+    accountRecordId: accountRecord.recordId,
+    account,
     dailyType,
     date,
-    userId: user.person.userId,
-    name: user.person.name,
-    group: user.person.group,
-    changedAccount: changedAccount ? YES_NO.yes : YES_NO.no,
-    account: account.accountName,
-    platform: account.platform,
-    accountType: account.accountType,
+    changedAccount,
     previousCredits,
     newAccountStartCredits,
     remainingCredits: input.remainingCredits,
     consumedCredits,
     assetCount: input.assetCount,
     roughCutSeconds,
-    hasIssue: hasIssue ? YES_NO.yes : YES_NO.no,
+    hasIssue,
     issueNote,
-    nonProductionNote: "",
-    status: DAILY_STATUS.pending,
-    includeRanking: decision.includeRanking ? YES_NO.yes : YES_NO.no,
-    month: monthOf(date),
-    submittedAt: nowIso()
-  };
+    includeRanking: decision.includeRanking
+  });
 
   const created = await createDailyRecord(record);
   return {
     recordId: created.recordId,
     daily: record
+  };
+}
+
+export function buildProductionDailyRecord(input: {
+  user: CurrentUser;
+  accountRecordId: string;
+  account: Account;
+  dailyType: DailyType;
+  date: string;
+  changedAccount: boolean;
+  previousCredits: number;
+  newAccountStartCredits: number;
+  remainingCredits: number;
+  consumedCredits: number;
+  assetCount: number;
+  roughCutSeconds: number;
+  hasIssue: boolean;
+  issueNote: string;
+  includeRanking: boolean;
+}): DailyRecord {
+  return {
+    dailyType: input.dailyType,
+    accountRecordId: input.accountRecordId,
+    date: input.date,
+    userId: input.user.person.userId,
+    name: input.user.person.name,
+    group: input.user.person.group,
+    changedAccount: input.changedAccount ? YES_NO.yes : YES_NO.no,
+    account: input.account.accountName,
+    platform: input.account.platform,
+    accountType: input.account.accountType,
+    previousCredits: input.previousCredits,
+    newAccountStartCredits: input.changedAccount ? input.newAccountStartCredits : 0,
+    remainingCredits: input.remainingCredits,
+    consumedCredits: input.consumedCredits,
+    assetCount: input.assetCount,
+    roughCutSeconds: input.roughCutSeconds,
+    hasIssue: input.hasIssue ? YES_NO.yes : YES_NO.no,
+    issueNote: input.issueNote,
+    nonProductionNote: "",
+    status: DAILY_STATUS.pending,
+    includeRanking: input.includeRanking ? YES_NO.yes : YES_NO.no,
+    month: monthOf(input.date),
+    submittedAt: nowIso()
   };
 }
 
@@ -321,6 +358,14 @@ function resolveUsableAccountRecord(
 
 async function createDailyRecord(record: DailyRecord) {
   const fields = toDailyFields(record);
+  const f = TABLE_FIELDS.daily;
+
+  if (
+    record.accountRecordId &&
+    !(await tableHasField("daily", f.accountRecordId))
+  ) {
+    console.info("[Daily accountRecordId field missing, fallback to account name]");
+  }
 
   console.info("[Daily fields to write]", {
     table: "daily",
@@ -380,7 +425,7 @@ export function findPreviousCredits(
       sortDateAsc(record.fields.date, targetDate) < 0
   );
   const recordIdMatched = accountRecordId
-    ? candidates.filter((record) => record.fields.account === accountRecordId)
+    ? candidates.filter((record) => record.fields.accountRecordId === accountRecordId)
     : [];
   const accountMatched = recordIdMatched.length
     ? recordIdMatched

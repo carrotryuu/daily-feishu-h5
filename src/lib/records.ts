@@ -107,8 +107,8 @@ export function mapAccount(fields: RawFields): Account {
     accountId: text(fields[f.accountId]),
     group: firstText(fields, [f.group, "小组", "组别"]),
     platform: isPlatformOption(platform) ? platform : "其他",
-    accountName: text(fields[f.accountName]),
-    accountType: text(fields[f.accountType]) as Account["accountType"],
+    accountName: firstText(fields, [f.accountName, "账号", "accountName"]),
+    accountType: firstText(fields, [f.accountType, "账号类型"]) as Account["accountType"],
     accountStatus: firstText(fields, [
       f.accountStatus,
       "可用状态",
@@ -152,6 +152,7 @@ export function mapDaily(fields: RawFields): DailyRecord {
   return {
     dailyId: text(fields[f.dailyId]),
     dailyType: dailyTypeFromFields(fields),
+    accountRecordId: text(fields[f.accountRecordId]),
     date: date(fields[f.date]),
     userId: text(fields[f.userId]),
     name: text(fields[f.name]),
@@ -216,6 +217,7 @@ export function toDailyFields(record: DailyRecord): RawFields {
   const f = TABLE_FIELDS.daily;
   return compactFields([
     [f.dailyType, record.dailyType],
+    [f.accountRecordId, record.accountRecordId],
     [f.date, dateToMs(record.date)],
     [f.userId, record.userId],
     [f.name, record.name],

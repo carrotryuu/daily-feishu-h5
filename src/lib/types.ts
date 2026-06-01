@@ -39,6 +39,7 @@ export type Account = {
 export type DailyRecord = {
   dailyId?: string;
   dailyType: DailyType;
+  accountRecordId?: string;
   date: string;
   userId: string;
   name: string;

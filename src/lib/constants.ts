@@ -131,6 +131,7 @@ export const TABLE_FIELDS = {
   daily: {
     dailyId: "日报ID",
     dailyType: null,
+    accountRecordId: "账号记录ID",
     date: "日期",
     userId: "用户ID",
     name: "人员",

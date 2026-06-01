@@ -6,12 +6,14 @@ import {
   DAILY_STATUS,
   DAILY_TYPES,
   PLATFORM_OPTIONS,
+  ROLES,
   YES_NO
 } from "./constants";
-import { findPreviousCredits } from "./daily-service";
+import { buildProductionDailyRecord, findPreviousCredits } from "./daily-service";
 import { calculateConsumedCredits, defaultDailyDecision } from "./domain";
 import { toDailyFields } from "./records";
 import type { Account, BitableRecord, DailyRecord } from "./types";
+import type { CurrentUser } from "./types";
 
 const accountA: Account = {
   group: "A组",
@@ -26,6 +28,18 @@ const accountB: Account = {
   ...accountA,
   accountName: "账号B",
   startCredits: 9000
+};
+
+const user: CurrentUser = {
+  sessionUserId: "animator_1",
+  sessionSource: "dev_open_id",
+  person: {
+    userId: "animator_1",
+    name: "赵国微",
+    role: ROLES.animator,
+    group: "孙导组",
+    enabled: YES_NO.yes
+  }
 };
 
 function daily(
@@ -92,7 +106,11 @@ test("previous credits prefer account recordId when it is stored in daily accoun
   const previousCredits = findPreviousCredits(
     [
       daily("name-match", { account: "账号B", remainingCredits: 1111 }),
-      daily("record-id-match", { account: "rec_account_b", remainingCredits: 2222 })
+      daily("record-id-match", {
+        account: "同名账号",
+        accountRecordId: "rec_account_b",
+        remainingCredits: 2222
+      })
     ],
     accountB,
     "2026-06-01",
@@ -131,4 +149,36 @@ test("daily fields write consumed credits instead of remaining credits", () => {
 
   assert.equal(fields["今日积分消耗"], 4823);
   assert.notEqual(fields["今日积分消耗"], fields["今日剩余积分"]);
+});
+
+test("production daily record keeps account, account type, and platform", () => {
+  const record = buildProductionDailyRecord({
+    user,
+    accountRecordId: "rec_account_a",
+    account: {
+      ...accountA,
+      accountName: "赵国微生产账号",
+      accountType: ACCOUNT_TYPES.personal,
+      platform: "LIBTV"
+    },
+    dailyType: DAILY_TYPES.production,
+    date: "2026-06-01",
+    changedAccount: false,
+    previousCredits: 40000,
+    newAccountStartCredits: 0,
+    remainingCredits: 30000,
+    consumedCredits: 10000,
+    assetCount: 3,
+    roughCutSeconds: 120,
+    hasIssue: false,
+    issueNote: "",
+    includeRanking: true
+  });
+
+  assert.equal(record.accountRecordId, "rec_account_a");
+  assert.equal(record.account, "赵国微生产账号");
+  assert.equal(record.accountType, ACCOUNT_TYPES.personal);
+  assert.equal(record.platform, "LIBTV");
+  assert.equal(record.group, "孙导组");
+  assert.equal(record.consumedCredits, 10000);
 });

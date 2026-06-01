@@ -9,6 +9,7 @@ import {
   YES_NO
 } from "./constants";
 import {
+  buildReviewListData,
   buildVisiblePendingDailyRecords,
   submitReviewWithDependencies,
   type ReviewDependencies
@@ -24,6 +25,20 @@ function director(group = "A组"): CurrentUser {
       name: "导演",
       role: ROLES.director,
       group,
+      enabled: YES_NO.yes
+    }
+  };
+}
+
+function manager(): CurrentUser {
+  return {
+    sessionUserId: "manager_1",
+    sessionSource: "dev_open_id",
+    person: {
+      userId: "manager_1",
+      name: "制片",
+      role: ROLES.manager,
+      group: "",
       enabled: YES_NO.yes
     }
   };
@@ -254,6 +269,34 @@ test("director cannot see daily records from other groups", () => {
   ]);
 
   assert.equal(rows.length, 0);
+});
+
+test("director group Sun can see daily group Sun after option id resolution", () => {
+  const rows = buildVisiblePendingDailyRecords(director("孙导组"), [
+    daily("sun-group", { group: "孙导组" })
+  ]);
+
+  assert.equal(rows.length, 1);
+});
+
+test("director group Sun cannot see daily group Ma", () => {
+  const data = buildReviewListData(director("孙导组"), [
+    daily("ma-group", { group: "马导组" })
+  ]);
+
+  assert.equal(data.pending.length, 0);
+  assert.equal(data.debug.hiddenRecords[0].hiddenReason, "group_mismatch");
+  assert.equal(data.debug.hiddenRecords[0].directorGroup, "孙导组");
+  assert.equal(data.debug.hiddenRecords[0].dailyGroup, "马导组");
+});
+
+test("manager can see all pending daily records", () => {
+  const rows = buildVisiblePendingDailyRecords(manager(), [
+    daily("sun-group", { group: "孙导组" }),
+    daily("ma-group", { group: "马导组" })
+  ]);
+
+  assert.equal(rows.length, 2);
 });
 
 test("passed, rejected, reviewed, and abnormal statuses do not appear in pending list", () => {

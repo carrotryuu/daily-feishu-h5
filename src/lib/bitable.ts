@@ -11,9 +11,9 @@ export const TABLE_NAMES = {
   pushLogs: "推送日志表"
 } as const;
 
-type TableKey = keyof typeof TABLE_NAMES;
+export type TableKey = keyof typeof TABLE_NAMES;
 
-type RawRecord = {
+export type RawRecord = {
   record_id: string;
   fields: Record<string, unknown>;
 };
@@ -21,6 +21,25 @@ type RawRecord = {
 type RawTable = {
   table_id: string;
   name: string;
+};
+
+type RawField = {
+  field_id: string;
+  field_name: string;
+  property?: {
+    options?: Array<{
+      id?: string;
+      name?: string;
+      text?: string;
+      value?: string;
+    }>;
+  };
+  options?: Array<{
+    id?: string;
+    name?: string;
+    text?: string;
+    value?: string;
+  }>;
 };
 
 type ListResponse = {
@@ -35,6 +54,18 @@ type ListTablesResponse = {
   page_token?: string;
   has_more?: boolean;
   total?: number;
+};
+
+type ListFieldsResponse = {
+  items?: RawField[];
+  page_token?: string;
+  has_more?: boolean;
+  total?: number;
+};
+
+export type TableFieldMeta = {
+  fieldNames: Set<string>;
+  optionNameByField: Record<string, Record<string, string>>;
 };
 
 export class BitableError extends Error {
@@ -61,6 +92,7 @@ export class BitableError extends Error {
 
 let appTokenCache: string | undefined;
 let tableIdCache: Partial<Record<TableKey, string>> | undefined;
+let fieldMetaCache: Partial<Record<TableKey, TableFieldMeta>> = {};
 
 async function bitableFetch<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -210,11 +242,162 @@ async function tablePath(tableIdOrKey: string) {
   return `/open-apis/bitable/v1/apps/${await getBitableAppToken()}/tables/${tableId}/records`;
 }
 
+async function fieldsPath(tableIdOrKey: string) {
+  const tableId = isTableKey(tableIdOrKey)
+    ? await getTableId(tableIdOrKey)
+    : tableIdOrKey;
+  return `/open-apis/bitable/v1/apps/${await getBitableAppToken()}/tables/${tableId}/fields`;
+}
+
+async function getTableFieldMeta(table: TableKey): Promise<TableFieldMeta> {
+  if (fieldMetaCache[table]) return fieldMetaCache[table]!;
+
+  const fields: RawField[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const query = new URLSearchParams({ page_size: "100" });
+    if (pageToken) query.set("page_token", pageToken);
+    const data = await bitableFetch<ListFieldsResponse>(
+      `${await fieldsPath(table)}?${query.toString()}`
+    );
+
+    fields.push(...(data.items ?? []));
+    pageToken = data.has_more ? data.page_token : undefined;
+  } while (pageToken);
+
+  const fieldNames = new Set<string>();
+  const optionNameByField: Record<string, Record<string, string>> = {};
+
+  for (const field of fields) {
+    fieldNames.add(field.field_name);
+    const options = field.property?.options ?? field.options ?? [];
+    const optionMap: Record<string, string> = {};
+
+    for (const option of options) {
+      const id = option.id;
+      const name = option.name ?? option.text ?? option.value;
+      if (id && name) optionMap[id] = String(name);
+    }
+
+    if (Object.keys(optionMap).length > 0) {
+      optionNameByField[field.field_name] = optionMap;
+    }
+  }
+
+  const meta = { fieldNames, optionNameByField };
+  fieldMetaCache = { ...fieldMetaCache, [table]: meta };
+  return meta;
+}
+
+export async function tableHasField(table: TableKey, fieldName: string) {
+  return (await getTableFieldMeta(table)).fieldNames.has(fieldName);
+}
+
+export function resolveBitableRecordFields(
+  table: TableKey,
+  record: RawRecord,
+  meta: TableFieldMeta
+) {
+  const resolved: Record<string, unknown> = {};
+
+  for (const [fieldName, value] of Object.entries(record.fields)) {
+    resolved[fieldName] = resolveFieldValue(
+      value,
+      meta.optionNameByField[fieldName] ?? {},
+      table,
+      fieldName,
+      record.record_id
+    );
+  }
+
+  return resolved;
+}
+
+function resolveFieldValue(
+  value: unknown,
+  optionNameById: Record<string, string>,
+  table: TableKey,
+  fieldName: string,
+  recordId: string
+): unknown {
+  if (typeof value === "string") {
+    return resolveOptionText(value, optionNameById, table, fieldName, recordId);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      resolveFieldValue(item, optionNameById, table, fieldName, recordId)
+    );
+  }
+
+  if (value && typeof value === "object") {
+    const raw = value as Record<string, unknown>;
+    const optionId = raw.id ?? raw.option_id ?? raw.value;
+    if (typeof optionId === "string") {
+      const resolved = resolveOptionText(
+        optionId,
+        optionNameById,
+        table,
+        fieldName,
+        recordId
+      );
+      if (resolved !== optionId) return resolved;
+    }
+  }
+
+  return value;
+}
+
+function resolveOptionText(
+  value: string,
+  optionNameById: Record<string, string>,
+  table: TableKey,
+  fieldName: string,
+  recordId: string
+) {
+  const resolved = optionNameById[value];
+  if (resolved) return resolved;
+
+  if (/^opt[a-z0-9]+$/i.test(value)) {
+    console.warn("[Bitable option unresolved]", {
+      table,
+      fieldName,
+      rawValue: value,
+      recordId
+    });
+  }
+
+  return value;
+}
+
+async function writableFieldsForTable<T extends Record<string, unknown>>(
+  tableIdOrKey: string,
+  fields: T
+) {
+  if (!isTableKey(tableIdOrKey)) return fields;
+
+  const meta = await getTableFieldMeta(tableIdOrKey);
+  const filtered: Record<string, unknown> = {};
+  for (const [fieldName, value] of Object.entries(fields)) {
+    if (meta.fieldNames.has(fieldName)) {
+      filtered[fieldName] = value;
+      continue;
+    }
+
+    console.warn("[Bitable field missing]", { table: tableIdOrKey, fieldName });
+  }
+
+  return filtered as T;
+}
+
 export async function listRecords<T>(
   tableIdOrKey: string
 ): Promise<BitableRecord<T>[]> {
   const records: BitableRecord<T>[] = [];
   let pageToken: string | undefined;
+  const table = isTableKey(tableIdOrKey) ? tableIdOrKey : undefined;
+  const fieldMeta = table ? await getTableFieldMeta(table) : undefined;
 
   do {
     const query = new URLSearchParams({ page_size: "500" });
@@ -226,7 +409,9 @@ export async function listRecords<T>(
     for (const item of data.items ?? []) {
       records.push({
         recordId: item.record_id,
-        fields: item.fields as T
+        fields: (table && fieldMeta
+          ? resolveBitableRecordFields(table, item, fieldMeta)
+          : item.fields) as T
       });
     }
 
@@ -244,7 +429,9 @@ export async function createRecord<T extends Record<string, unknown>>(
     await tablePath(tableIdOrKey),
     {
       method: "POST",
-      body: JSON.stringify({ fields })
+      body: JSON.stringify({
+        fields: await writableFieldsForTable(tableIdOrKey, fields)
+      })
     }
   );
 
@@ -263,7 +450,9 @@ export async function updateRecord<T extends Record<string, unknown>>(
     `${await tablePath(tableIdOrKey)}/${recordId}`,
     {
       method: "PUT",
-      body: JSON.stringify({ fields })
+      body: JSON.stringify({
+        fields: await writableFieldsForTable(tableIdOrKey, fields)
+      })
     }
   );
 

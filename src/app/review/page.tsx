@@ -207,13 +207,13 @@ export default function ReviewPage() {
             <table>
               <thead>
                 <tr>
-                  <th>日期</th>
-                  <th>类型</th>
-                  <th>人员</th>
-                  <th>所属小组</th>
-                  <th>账号</th>
+                  <th style={{ minWidth: 110 }}>日期</th>
+                  <th style={{ minWidth: 110 }}>类型</th>
+                  <th style={{ minWidth: 110 }}>人员</th>
+                  <th style={{ minWidth: 120 }}>所属小组</th>
+                  <th style={{ minWidth: 160 }}>账号</th>
                   <th>平台</th>
-                  <th>账号类型</th>
+                  <th style={{ minWidth: 140 }}>账号类型</th>
                   <th>昨日剩余积分</th>
                   <th>今日剩余积分</th>
                   <th>今日积分消耗</th>

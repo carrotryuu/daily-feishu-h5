@@ -169,6 +169,10 @@ export function buildReviewListData(
     account: string;
     otherPeriodContent: string;
     hiddenReason: string;
+    directorGroup?: string;
+    dailyGroup?: string;
+    rawDirectorGroup?: string;
+    rawDailyGroup?: string;
   }> = [];
   const pending = [];
 
@@ -184,7 +188,11 @@ export function buildReviewListData(
         status: record.fields.status,
         account: record.fields.account,
         otherPeriodContent: record.fields.nonProductionNote || "",
-        hiddenReason
+        hiddenReason,
+        directorGroup: user.person.group,
+        dailyGroup: record.fields.group,
+        rawDirectorGroup: user.person.group,
+        rawDailyGroup: record.fields.group
       });
       continue;
     }
