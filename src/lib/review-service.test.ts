@@ -19,7 +19,7 @@ import {
   submitReviewWithDependencies,
   type ReviewDependencies
 } from "./review-service";
-import type { BitableRecord, CurrentUser, DailyRecord } from "./types";
+import type { BitableRecord, CurrentUser, DailyRecord, Person } from "./types";
 
 function director(group = "A组"): CurrentUser {
   return {
@@ -45,6 +45,23 @@ function manager(): CurrentUser {
       role: ROLES.manager,
       group: "",
       enabled: YES_NO.yes
+    }
+  };
+}
+
+function person(
+  recordId: string,
+  overrides: Partial<Person> = {}
+): BitableRecord<Person> {
+  return {
+    recordId,
+    fields: {
+      userId: "animator_1",
+      name: "动画师",
+      role: ROLES.animator,
+      group: "孙导组",
+      enabled: YES_NO.yes,
+      ...overrides
     }
   };
 }
@@ -344,6 +361,93 @@ test("director group Sun cannot see daily group Ma", () => {
   assert.equal(data.debug.hiddenRecords[0].rawDirectorGroup, "\"孙导组\"");
   assert.equal(data.debug.hiddenRecords[0].normalizedDirectorGroup, "孙导组");
   assert.equal(data.debug.hiddenRecords[0].normalizedGroup, "马导组");
+});
+
+test("daily opt group falls back to Zhao Guowei person group Sun by userId", () => {
+  const rows = buildVisiblePendingDailyRecords(
+    director("孙导组"),
+    [
+      daily("zhao", {
+        userId: "zhao",
+        name: "赵国微",
+        group: "optDLLzCQZ"
+      })
+    ],
+    [person("zhao", { userId: "zhao", name: "赵国微", group: "孙导组" })]
+  );
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].group, "孙导组");
+});
+
+test("daily opt group falls back to Wang Sen person group Ma by userId", () => {
+  const data = buildReviewListData(
+    director("孙导组"),
+    [
+      daily("wang", {
+        userId: "wang",
+        name: "王森",
+        group: "optDLLzCQZ"
+      })
+    ],
+    [person("wang", { userId: "wang", name: "王森", group: "马导组" })]
+  );
+
+  assert.equal(data.pending.length, 0);
+  assert.equal(data.debug.hiddenRecords[0].hiddenReason, "group_mismatch");
+  assert.equal(data.debug.hiddenRecords[0].effectiveGroup, "马导组");
+  assert.equal(data.debug.hiddenRecords[0].groupSource, "people_by_user_id");
+});
+
+test("director group Ma can see Wang Sen after person group fallback", () => {
+  const rows = buildVisiblePendingDailyRecords(
+    director("马导组"),
+    [
+      daily("wang", {
+        userId: "wang",
+        name: "王森",
+        group: "optDLLzCQZ"
+      })
+    ],
+    [person("wang", { userId: "wang", name: "王森", group: "马导组" })]
+  );
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].group, "马导组");
+});
+
+test("manager can see all records after person group fallback", () => {
+  const rows = buildVisiblePendingDailyRecords(
+    manager(),
+    [
+      daily("zhao", { userId: "zhao", name: "赵国微", group: "opt_sun" }),
+      daily("wang", { userId: "wang", name: "王森", group: "opt_ma" })
+    ],
+    [
+      person("zhao", { userId: "zhao", name: "赵国微", group: "孙导组" }),
+      person("wang", { userId: "wang", name: "王森", group: "马导组" })
+    ]
+  );
+
+  assert.equal(rows.length, 2);
+});
+
+test("debug includes group fallback details when userId fallback is used", () => {
+  const data = buildReviewListData(
+    director("孙导组"),
+    [
+      daily("zhao", {
+        userId: "zhao",
+        name: "赵国微",
+        group: "optDLLzCQZ"
+      })
+    ],
+    [person("zhao", { userId: "zhao", name: "赵国微", group: "孙导组" })]
+  );
+
+  assert.equal(data.debug.groupFallbacks[0].recordId, "zhao");
+  assert.equal(data.debug.groupFallbacks[0].fallbackGroup, "孙导组");
+  assert.equal(data.debug.groupFallbacks[0].groupSource, "people_by_user_id");
 });
 
 test("manager can see all pending daily records", () => {

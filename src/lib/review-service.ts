@@ -12,6 +12,7 @@ import { createRecord, updateRecord } from "./bitable";
 import { calculateConsumedCredits } from "./domain";
 import { formatDate, nowIso } from "./dates";
 import {
+  getPeople,
   getDailyRecords,
   normalizeFieldText,
   normalizeGroupName,
@@ -19,7 +20,13 @@ import {
   type RawFields
 } from "./records";
 import { recomputeRanking } from "./ranking-service";
-import type { BitableRecord, CurrentUser, DailyRecord, ReviewRecord } from "./types";
+import type {
+  BitableRecord,
+  CurrentUser,
+  DailyRecord,
+  Person,
+  ReviewRecord
+} from "./types";
 
 export type ReviewSubmitInput = {
   recordId: string;
@@ -32,6 +39,7 @@ export type ReviewSubmitInput = {
 
 export type ReviewDependencies = {
   getDailyRecords: typeof getDailyRecords;
+  getPeople?: typeof getPeople;
   updateRecord: typeof updateRecord;
   createRecord: typeof createRecord;
   recomputeRanking: typeof recomputeRanking;
@@ -40,6 +48,7 @@ export type ReviewDependencies = {
 
 const defaultReviewDependencies: ReviewDependencies = {
   getDailyRecords,
+  getPeople,
   updateRecord,
   createRecord,
   recomputeRanking,
@@ -49,8 +58,8 @@ const defaultReviewDependencies: ReviewDependencies = {
 export async function getReviewPageData(user: CurrentUser) {
   assertCanReview(user);
 
-  const daily = await getDailyRecords();
-  const reviewData = buildReviewListData(user, daily);
+  const [daily, people] = await Promise.all([getDailyRecords(), getPeople()]);
+  const reviewData = buildReviewListData(user, daily, people);
 
   console.info("[Review request]", {
     directorUserId: user.person.userId,
@@ -97,7 +106,21 @@ export async function submitReviewWithDependencies(
   if (!daily) {
     throw new Response("日报不存在", { status: 404 });
   }
-  if (!canReviewGroup(user, daily.fields.group)) {
+  const people = (await dependencies.getPeople?.()) ?? [];
+  const groupResolution = resolveEffectiveDailyGroup(
+    daily,
+    new Map(
+      people
+        .filter((record) => record.fields.userId)
+        .map((record) => [record.fields.userId, record.fields])
+    ),
+    new Map(
+      people
+        .filter((record) => record.fields.name)
+        .map((record) => [record.fields.name, record.fields])
+    )
+  );
+  if (!canReviewGroup(user, groupResolution.effectiveGroup)) {
     throw new Response("不能审核其他小组日报", { status: 403 });
   }
   if (normalizeFieldText(daily.fields.status) !== DAILY_STATUS.pending) {
@@ -123,7 +146,7 @@ export async function submitReviewWithDependencies(
     date: daily.fields.date,
     name: daily.fields.name,
     userId: daily.fields.userId,
-    group: daily.fields.group,
+    group: groupResolution.effectiveGroup || daily.fields.group,
     reviewerUserId: user.person.userId,
     reviewerName: user.person.name,
     grade: input.grade,
@@ -151,15 +174,27 @@ export async function submitReviewWithDependencies(
 
 export function buildVisiblePendingDailyRecords(
   user: CurrentUser,
-  daily: BitableRecord<DailyRecord>[]
+  daily: BitableRecord<DailyRecord>[],
+  people: BitableRecord<Person>[] = []
 ) {
-  return buildReviewListData(user, daily).pending;
+  return buildReviewListData(user, daily, people).pending;
 }
 
 export function buildReviewListData(
   user: CurrentUser,
-  daily: BitableRecord<DailyRecord>[]
+  daily: BitableRecord<DailyRecord>[],
+  people: BitableRecord<Person>[] = []
 ) {
+  const peopleByUserId = new Map(
+    people
+      .filter((record) => record.fields.userId)
+      .map((record) => [record.fields.userId, record.fields])
+  );
+  const peopleByName = new Map(
+    people
+      .filter((record) => record.fields.name)
+      .map((record) => [record.fields.name, record.fields])
+  );
   const hiddenRecords: Array<{
     recordId: string;
     date: string;
@@ -171,6 +206,8 @@ export function buildReviewListData(
     group: string;
     rawGroup: string;
     normalizedGroup: string;
+    effectiveGroup: string;
+    groupSource: string;
     directorGroup: string;
     rawDirectorGroup: string;
     normalizedDirectorGroup: string;
@@ -178,10 +215,33 @@ export function buildReviewListData(
     otherPeriodContent: string;
     hiddenReason: string;
   }> = [];
+  const groupFallbacks: Array<{
+    recordId: string;
+    name: string;
+    userId: string;
+    rawDailyGroup: string;
+    fallbackGroup: string;
+    groupSource: string;
+  }> = [];
   const pending = [];
 
   for (const record of daily) {
-    const hiddenReason = hiddenReviewReason(user, record);
+    const groupResolution = resolveEffectiveDailyGroup(
+      record,
+      peopleByUserId,
+      peopleByName
+    );
+    if (groupResolution.groupSource !== "daily_field") {
+      groupFallbacks.push({
+        recordId: record.recordId,
+        name: record.fields.name,
+        userId: record.fields.userId,
+        rawDailyGroup: record.fields.group,
+        fallbackGroup: groupResolution.effectiveGroup,
+        groupSource: groupResolution.groupSource
+      });
+    }
+    const hiddenReason = hiddenReviewReason(user, record, groupResolution);
     if (hiddenReason) {
       hiddenRecords.push({
         recordId: record.recordId,
@@ -194,6 +254,8 @@ export function buildReviewListData(
         group: record.fields.group,
         rawGroup: fieldDebugText(record.fields.group),
         normalizedGroup: normalizeGroupName(record.fields.group),
+        effectiveGroup: groupResolution.effectiveGroup,
+        groupSource: groupResolution.groupSource,
         directorGroup: user.person.group,
         rawDirectorGroup: fieldDebugText(user.person.group),
         normalizedDirectorGroup: normalizeGroupName(user.person.group),
@@ -206,6 +268,7 @@ export function buildReviewListData(
 
     pending.push({
       ...record.fields,
+      group: groupResolution.effectiveGroup || record.fields.group,
       recordId: record.recordId,
       dailyId: record.fields.dailyId || record.recordId,
       consumedCredits: resolvedConsumedCredits(record.fields)
@@ -232,6 +295,7 @@ export function buildReviewListData(
     visibleRecords: pending.length,
     hiddenReasonsSummary,
     hiddenRecords,
+    groupFallbacks,
     groupMismatchSamples: hiddenRecords
       .filter((record) => record.hiddenReason === "group_mismatch")
       .slice(0, 5)
@@ -242,20 +306,84 @@ export function buildReviewListData(
 
 function hiddenReviewReason(
   user: CurrentUser,
-  record: BitableRecord<DailyRecord>
+  record: BitableRecord<DailyRecord>,
+  groupResolution: GroupResolution
 ) {
   const normalizedStatus = normalizeFieldText(record.fields.status);
   if (!normalizedStatus) return "invalid_status_field";
   if (normalizedStatus !== DAILY_STATUS.pending) return "status_not_pending";
-  if (!normalizeGroupName(record.fields.group)) return "missing_group";
+  if (!normalizeGroupName(groupResolution.effectiveGroup)) return "missing_group";
   if (
     !normalizeGroupName(user.person.group) &&
     normalizeRole(String(user.person.role)) !== ROLES.manager
   ) {
     return "director_group_missing";
   }
-  if (!canReviewGroup(user, record.fields.group)) return "group_mismatch";
+  if (!canReviewGroup(user, groupResolution.effectiveGroup)) {
+    return "group_mismatch";
+  }
   return "";
+}
+
+type GroupSource =
+  | "daily_field"
+  | "people_by_user_id"
+  | "people_by_name"
+  | "unresolved";
+
+type GroupResolution = {
+  effectiveGroup: string;
+  groupSource: GroupSource;
+};
+
+function resolveEffectiveDailyGroup(
+  record: BitableRecord<DailyRecord>,
+  peopleByUserId: Map<string, Person>,
+  peopleByName: Map<string, Person>
+): GroupResolution {
+  const dailyGroup = normalizeFieldText(record.fields.group);
+  if (dailyGroup && !isOptionId(dailyGroup)) {
+    return { effectiveGroup: dailyGroup, groupSource: "daily_field" };
+  }
+
+  const personByUserId = peopleByUserId.get(record.fields.userId);
+  if (personByUserId?.group) {
+    logReviewGroupFallback(record, personByUserId.group, "people_by_user_id");
+    return {
+      effectiveGroup: personByUserId.group,
+      groupSource: "people_by_user_id"
+    };
+  }
+
+  const personByName = peopleByName.get(record.fields.name);
+  if (personByName?.group) {
+    logReviewGroupFallback(record, personByName.group, "people_by_name");
+    return {
+      effectiveGroup: personByName.group,
+      groupSource: "people_by_name"
+    };
+  }
+
+  return { effectiveGroup: dailyGroup, groupSource: "unresolved" };
+}
+
+function isOptionId(value: string) {
+  return /^opt[a-z0-9]+$/i.test(value.trim());
+}
+
+function logReviewGroupFallback(
+  record: BitableRecord<DailyRecord>,
+  fallbackGroup: string,
+  groupSource: GroupSource
+) {
+  console.info("[Review group fallback]", {
+    recordId: record.recordId,
+    name: record.fields.name,
+    userId: record.fields.userId,
+    rawDailyGroup: record.fields.group,
+    fallbackGroup,
+    groupSource
+  });
 }
 
 function reviewDecision(input: {

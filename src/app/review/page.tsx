@@ -206,29 +206,14 @@ export default function ReviewPage() {
         </div>
       ) : null}
       {message ? <div className="notice success">{message}</div> : null}
-      {data && pending.length === 0 && data.debug ? (
-        <div className="notice" style={{ whiteSpace: "pre-line" }}>
-          {[
-            `诊断：日报总数 ${displayValue(data.debug.totalDailyRecords)}`,
-            `待审核 ${displayValue(data.debug.pendingRecords)}`,
-            `当前可见 ${displayValue(data.debug.visibleRecords)}`,
-            `隐藏原因 ${displayValue(data.debug.hiddenReasonsSummary)}`,
-            ...groupMismatchSamples.map(
-              (record) =>
-                [
-                  `人员: ${displayValue(record.name)}`,
-                  `日报组 rawGroup: ${displayValue(record.rawGroup)}`,
-                  `日报组 normalizedGroup: ${displayValue(record.normalizedGroup)}`,
-                  `导演组 rawDirectorGroup: ${displayValue(record.rawDirectorGroup)}`,
-                  `导演组 normalizedDirectorGroup: ${displayValue(
-                    record.normalizedDirectorGroup
-                  )}`,
-                  `状态 rawStatus: ${displayValue(record.rawStatus)}`,
-                  `状态 normalizedStatus: ${displayValue(record.normalizedStatus)}`,
-                  `隐藏原因 hiddenReason: ${displayValue(record.hiddenReason)}`
-                ].join("\n")
-            )
-          ].join("\n")}
+      {data?.debug ? (
+        <div className="notice">
+          日报总数 {displayValue(data.debug.totalDailyRecords)} / 待审核{" "}
+          {displayValue(data.debug.pendingRecords)} / 当前可见{" "}
+          {displayValue(data.debug.visibleRecords)}
+          {pending.length === 0 ? (
+            <div className="subtle">当前导演暂无可审核日报，展开诊断信息查看原因。</div>
+          ) : null}
         </div>
       ) : null}
 
@@ -388,6 +373,33 @@ export default function ReviewPage() {
           ) : (
             <div className="notice">请选择一条待审核日报。</div>
           )}
+          {data?.debug ? (
+            <details className="notice" style={{ whiteSpace: "pre-line" }}>
+              <summary>诊断信息</summary>
+              {[
+                `日报总数 ${displayValue(data.debug.totalDailyRecords)}`,
+                `待审核 ${displayValue(data.debug.pendingRecords)}`,
+                `当前可见 ${displayValue(data.debug.visibleRecords)}`,
+                `隐藏原因 ${displayValue(data.debug.hiddenReasonsSummary)}`,
+                ...groupMismatchSamples.map((record) =>
+                  [
+                    `人员: ${displayValue(record.name)}`,
+                    `日报组 rawGroup: ${displayValue(record.rawGroup)}`,
+                    `日报组 normalizedGroup: ${displayValue(record.normalizedGroup)}`,
+                    `日报组 effectiveGroup: ${displayValue(record.effectiveGroup)}`,
+                    `日报组 groupSource: ${displayValue(record.groupSource)}`,
+                    `导演组 rawDirectorGroup: ${displayValue(record.rawDirectorGroup)}`,
+                    `导演组 normalizedDirectorGroup: ${displayValue(
+                      record.normalizedDirectorGroup
+                    )}`,
+                    `状态 rawStatus: ${displayValue(record.rawStatus)}`,
+                    `状态 normalizedStatus: ${displayValue(record.normalizedStatus)}`,
+                    `隐藏原因 hiddenReason: ${displayValue(record.hiddenReason)}`
+                  ].join("\n")
+                )
+              ].join("\n")}
+            </details>
+          ) : null}
         </form>
       </section>
     </main>
