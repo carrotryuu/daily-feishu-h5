@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { displayValue, safeArray } from "@/lib/review-display";
 
 type PendingDaily = {
   recordId: string;
@@ -30,19 +31,8 @@ type ReviewDebug = {
   pendingRecords: number;
   visibleRecords: number;
   hiddenReasonsSummary: Record<string, number>;
-  groupMismatchSamples?: Array<{
-    name: string;
-    status: string;
-    rawStatus: string;
-    normalizedStatus: string;
-    group: string;
-    rawGroup: string;
-    normalizedGroup: string;
-    directorGroup: string;
-    rawDirectorGroup: string;
-    normalizedDirectorGroup: string;
-    hiddenReason: string;
-  }>;
+  hiddenRecords?: unknown;
+  groupMismatchSamples?: unknown;
 };
 
 type ReviewData = {
@@ -135,8 +125,9 @@ export default function ReviewPage() {
       setError(formatError(payload) || "无法读取审核数据");
       return;
     }
+    const loadedPending = safeArray<PendingDaily>(payload.pending);
     setData({ ...payload, user: mePayload.user });
-    setSelected((current) => current ?? payload.pending[0] ?? null);
+    setSelected((current) => current ?? loadedPending[0] ?? null);
   }
 
   useEffect(() => {
@@ -182,6 +173,19 @@ export default function ReviewPage() {
     await load();
   }
 
+  const pending = safeArray<PendingDaily>(data?.pending);
+  const hiddenRecords = safeArray<Record<string, unknown>>(data?.debug?.hiddenRecords);
+  const explicitGroupMismatchSamples = safeArray<Record<string, unknown>>(
+    data?.debug?.groupMismatchSamples
+  );
+  const groupMismatchSamples = (
+    explicitGroupMismatchSamples.length
+      ? explicitGroupMismatchSamples
+      : hiddenRecords.filter(
+          (record) => displayValue(record.hiddenReason) === "group_mismatch"
+        )
+  ).slice(0, 5);
+
   return (
     <main className="page">
       <div className="page-title">
@@ -202,22 +206,26 @@ export default function ReviewPage() {
         </div>
       ) : null}
       {message ? <div className="notice success">{message}</div> : null}
-      {data && data.pending.length === 0 && data.debug ? (
+      {data && pending.length === 0 && data.debug ? (
         <div className="notice" style={{ whiteSpace: "pre-line" }}>
           {[
-            `诊断：日报总数 ${data.debug.totalDailyRecords}`,
-            `待审核 ${data.debug.pendingRecords}`,
-            `当前可见 ${data.debug.visibleRecords}`,
-            `隐藏原因 ${JSON.stringify(data.debug.hiddenReasonsSummary)}`,
-            ...(data.debug.groupMismatchSamples ?? []).map(
+            `诊断：日报总数 ${displayValue(data.debug.totalDailyRecords)}`,
+            `待审核 ${displayValue(data.debug.pendingRecords)}`,
+            `当前可见 ${displayValue(data.debug.visibleRecords)}`,
+            `隐藏原因 ${displayValue(data.debug.hiddenReasonsSummary)}`,
+            ...groupMismatchSamples.map(
               (record) =>
                 [
-                  `人员: ${record.name}`,
-                  `日报组 rawGroup: ${record.rawGroup}`,
-                  `日报组 normalizedGroup: ${record.normalizedGroup}`,
-                  `导演组 rawDirectorGroup: ${record.rawDirectorGroup}`,
-                  `导演组 normalizedDirectorGroup: ${record.normalizedDirectorGroup}`,
-                  `状态 normalizedStatus: ${record.normalizedStatus}`
+                  `人员: ${displayValue(record.name)}`,
+                  `日报组 rawGroup: ${displayValue(record.rawGroup)}`,
+                  `日报组 normalizedGroup: ${displayValue(record.normalizedGroup)}`,
+                  `导演组 rawDirectorGroup: ${displayValue(record.rawDirectorGroup)}`,
+                  `导演组 normalizedDirectorGroup: ${displayValue(
+                    record.normalizedDirectorGroup
+                  )}`,
+                  `状态 rawStatus: ${displayValue(record.rawStatus)}`,
+                  `状态 normalizedStatus: ${displayValue(record.normalizedStatus)}`,
+                  `隐藏原因 hiddenReason: ${displayValue(record.hiddenReason)}`
                 ].join("\n")
             )
           ].join("\n")}
@@ -252,7 +260,7 @@ export default function ReviewPage() {
                 </tr>
               </thead>
               <tbody>
-                {(data?.pending ?? []).map((row) => (
+                {pending.map((row) => (
                   <tr key={row.recordId}>
                     <td>{row.date}</td>
                     <td>{row.dailyType || "生产日报"}</td>
