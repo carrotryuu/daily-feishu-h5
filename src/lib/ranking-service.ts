@@ -61,7 +61,12 @@ export async function recomputeRanking(month: string) {
       const row = record.fields;
       if (row.month !== month) return false;
       if (row.dailyType !== DAILY_TYPES.production) return false;
-      if (row.status !== DAILY_STATUS.reviewed) return false;
+      if (
+        row.status !== DAILY_STATUS.approved &&
+        row.status !== DAILY_STATUS.reviewed
+      ) {
+        return false;
+      }
       if (row.includeRanking !== YES_NO.yes) return false;
       if (row.accountType !== ACCOUNT_TYPES.personal) return false;
       if ((row.consumedCredits ?? 0) < 0) return false;

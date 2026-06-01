@@ -174,7 +174,12 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
     throw new Response("同一天同一账号已经提交过日报", { status: 409 });
   }
 
-  const previousCredits = findPreviousCredits(daily, account, date);
+  const previousCredits = findPreviousCredits(
+    daily,
+    account,
+    date,
+    accountRecord.recordId
+  );
   const newAccountStartCredits = changedAccount ? account.startCredits : 0;
   const consumedCredits = calculateConsumedCredits({
     changedAccount,
@@ -363,20 +368,34 @@ function resolveDailyType(value?: string): DailyType {
   throw new Response("日报类型不正确", { status: 400 });
 }
 
-function findPreviousCredits(
+export function findPreviousCredits(
   daily: BitableRecord<DailyRecord>[],
   account: Account,
-  targetDate: string
+  targetDate: string,
+  accountRecordId?: string
 ) {
-  const previous = daily
-    .filter(
-      (record) =>
-        record.fields.account === account.accountName &&
-        sortDateAsc(record.fields.date, targetDate) < 0
-    )
+  const candidates = daily.filter(
+    (record) =>
+      isEffectivePreviousDaily(record.fields) &&
+      sortDateAsc(record.fields.date, targetDate) < 0
+  );
+  const recordIdMatched = accountRecordId
+    ? candidates.filter((record) => record.fields.account === accountRecordId)
+    : [];
+  const accountMatched = recordIdMatched.length
+    ? recordIdMatched
+    : candidates.filter((record) => record.fields.account === account.accountName);
+  const previous = accountMatched
     .sort((a, b) => sortDateAsc(b.fields.date, a.fields.date))[0];
 
   return previous?.fields.remainingCredits ?? account.startCredits;
+}
+
+function isEffectivePreviousDaily(record: DailyRecord) {
+  return (
+    record.status !== DAILY_STATUS.rejected &&
+    record.status !== DAILY_STATUS.abnormal
+  );
 }
 
 export function dailyListFieldsForClient(record: DailyRecord) {

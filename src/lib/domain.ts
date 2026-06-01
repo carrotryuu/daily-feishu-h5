@@ -31,19 +31,17 @@ export type RankingRow = {
 };
 
 export function calculateConsumedCredits(input: {
-  changedAccount: boolean;
+  changedAccount: boolean | string;
   previousCredits: number;
   newAccountStartCredits: number;
   remainingCredits: number;
 }) {
-  if (input.changedAccount) {
-    return (
-      input.previousCredits +
-      input.newAccountStartCredits -
-      input.remainingCredits
-    );
-  }
-  return input.previousCredits - input.remainingCredits;
+  const changedAccount =
+    input.changedAccount === true ||
+    String(input.changedAccount).trim() === "是" ||
+    String(input.changedAccount).trim().toLowerCase() === "true";
+  const base = changedAccount ? input.newAccountStartCredits : input.previousCredits;
+  return base - input.remainingCredits;
 }
 
 export function defaultDailyDecision(input: {
@@ -99,7 +97,7 @@ export function reviewRankingDecision(input: {
     isWithinTPlusOne(input.date, input.reviewedAtDate);
 
   return {
-    status: DAILY_STATUS.reviewed,
+    status: DAILY_STATUS.approved,
     includeRanking
   };
 }

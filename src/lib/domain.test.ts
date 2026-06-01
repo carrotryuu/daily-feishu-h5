@@ -12,11 +12,11 @@ test("calculates consumed credits without account change", () => {
   assert.equal(
     calculateConsumedCredits({
       changedAccount: false,
-      previousCredits: 100,
+      previousCredits: 7823,
       newAccountStartCredits: 0,
-      remainingCredits: 64
+      remainingCredits: 3000
     }),
-    36
+    4823
   );
 });
 
@@ -24,11 +24,35 @@ test("calculates consumed credits with account change", () => {
   assert.equal(
     calculateConsumedCredits({
       changedAccount: true,
-      previousCredits: 20,
-      newAccountStartCredits: 100,
-      remainingCredits: 90
+      previousCredits: 7823,
+      newAccountStartCredits: 5000,
+      remainingCredits: 3000
     }),
-    30
+    2000
+  );
+});
+
+test("calculates consumed credits when changed account is yes text", () => {
+  assert.equal(
+    calculateConsumedCredits({
+      changedAccount: "是",
+      previousCredits: 7823,
+      newAccountStartCredits: 5000,
+      remainingCredits: 3000
+    }),
+    2000
+  );
+});
+
+test("calculates consumed credits when changed account is no text", () => {
+  assert.equal(
+    calculateConsumedCredits({
+      changedAccount: "否",
+      previousCredits: 7823,
+      newAccountStartCredits: 5000,
+      remainingCredits: 3000
+    }),
+    4823
   );
 });
 
@@ -53,7 +77,7 @@ test("shared account is not included in ranking", () => {
     reviewerIncludedRanking: true
   });
 
-  assert.equal(decision.status, DAILY_STATUS.reviewed);
+  assert.equal(decision.status, DAILY_STATUS.approved);
   assert.equal(decision.includeRanking, false);
 });
 
@@ -68,7 +92,7 @@ test("non-production daily is not included in ranking", () => {
     reviewerIncludedRanking: true
   });
 
-  assert.equal(decision.status, DAILY_STATUS.reviewed);
+  assert.equal(decision.status, DAILY_STATUS.approved);
   assert.equal(decision.includeRanking, false);
 });
 

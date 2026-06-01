@@ -35,6 +35,11 @@ function text(value: unknown) {
       )
       .join("");
   }
+  if (typeof value === "object") {
+    if ("text" in value) return String(value.text);
+    if ("name" in value) return String(value.name);
+    if ("value" in value) return String(value.value);
+  }
   return String(value);
 }
 
@@ -129,17 +134,28 @@ export function mapAccount(fields: RawFields): Account {
   };
 }
 
+function dailyTypeFromFields(fields: RawFields) {
+  const f = TABLE_FIELDS.daily;
+  const mappedType = f.dailyType ? text(fields[f.dailyType]).trim() : "";
+  if ((Object.values(DAILY_TYPES) as string[]).includes(mappedType)) {
+    return mappedType as DailyRecord["dailyType"];
+  }
+
+  const otherPeriodContent = text(fields[f.nonProductionNote]);
+  if (otherPeriodContent) return DAILY_TYPES.other;
+
+  return DAILY_TYPES.production;
+}
+
 export function mapDaily(fields: RawFields): DailyRecord {
   const f = TABLE_FIELDS.daily;
   return {
     dailyId: text(fields[f.dailyId]),
-    dailyType: (f.dailyType
-      ? text(fields[f.dailyType]) || DAILY_TYPES.production
-      : DAILY_TYPES.production) as DailyRecord["dailyType"],
+    dailyType: dailyTypeFromFields(fields),
     date: date(fields[f.date]),
     userId: text(fields[f.userId]),
     name: text(fields[f.name]),
-    group: text(fields[f.group]),
+    group: text(fields[f.group]).trim(),
     changedAccount: text(fields[f.changedAccount]) as DailyRecord["changedAccount"],
     account: text(fields[f.account]),
     platform: text(fields[f.platform]),
@@ -153,7 +169,7 @@ export function mapDaily(fields: RawFields): DailyRecord {
     hasIssue: text(fields[f.hasIssue]) as DailyRecord["hasIssue"],
     issueNote: text(fields[f.issueNote]),
     nonProductionNote: f.nonProductionNote ? text(fields[f.nonProductionNote]) : "",
-    status: text(fields[f.status]) as DailyRecord["status"],
+    status: text(fields[f.status]).trim() as DailyRecord["status"],
     includeRanking: text(fields[f.includeRanking]) as DailyRecord["includeRanking"],
     month: text(fields[f.month]),
     submittedAt: dateTime(fields[f.submittedAt])

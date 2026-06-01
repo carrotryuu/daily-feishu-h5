@@ -102,6 +102,34 @@ export default function DailyPage() {
     form.selectedAccountId
   );
   const isProduction = isProductionDaily(form.dailyType);
+  const selectedDate = form.dateMode === "today" ? data?.today : data?.yesterday;
+  const previewPreviousCredits = useMemo(() => {
+    if (!selectedAccount || !selectedDate) return undefined;
+    const previous = (data?.recentDaily ?? [])
+      .filter(
+        (row) =>
+          row.account === selectedAccount.accountName &&
+          row.date < selectedDate
+      )
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+
+    return previous?.remainingCredits ?? selectedAccount.startCredits;
+  }, [data?.recentDaily, selectedAccount, selectedDate]);
+  const previewConsumedCredits = useMemo(() => {
+    if (!selectedAccount || !form.remainingCredits) return undefined;
+    const remainingCredits = Number(form.remainingCredits);
+    if (!Number.isFinite(remainingCredits)) return undefined;
+    const base = form.changedAccount
+      ? selectedAccount.startCredits
+      : previewPreviousCredits;
+    if (base === undefined) return undefined;
+    return base - remainingCredits;
+  }, [
+    form.changedAccount,
+    form.remainingCredits,
+    previewPreviousCredits,
+    selectedAccount
+  ]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -118,7 +146,6 @@ export default function DailyPage() {
     setMessage("");
     setError("");
 
-    const selectedDate = form.dateMode === "today" ? data?.today : data?.yesterday;
     const response = await fetch("/api/daily", {
       method: "POST",
       credentials: "include",
@@ -233,6 +260,11 @@ export default function DailyPage() {
                       {selectedStartCredits !== undefined ? (
                         <span className="subtle">起始积分 {selectedStartCredits}</span>
                       ) : null}
+                      {previewPreviousCredits !== undefined ? (
+                        <span className="subtle">
+                          昨日剩余积分 {previewPreviousCredits}
+                        </span>
+                      ) : null}
                     </>
                   ) : (
                     <div className="notice error">
@@ -264,6 +296,11 @@ export default function DailyPage() {
                       setForm({ ...form, remainingCredits: event.target.value })
                     }
                   />
+                  {previewConsumedCredits !== undefined ? (
+                    <span className="subtle">
+                      预计今日积分消耗 {previewConsumedCredits}
+                    </span>
+                  ) : null}
                 </div>
 
                 <div className="field">

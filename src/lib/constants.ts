@@ -25,6 +25,8 @@ export const PLATFORM_OPTIONS = [
 
 export const DAILY_STATUS = {
   pending: "待审核",
+  approved: "通过",
+  rejected: "驳回",
   reviewed: "已审核",
   abnormal: "异常"
 } as const;
