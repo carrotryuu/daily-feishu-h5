@@ -282,6 +282,7 @@ export function buildReviewListData(
     },
     {}
   );
+  const hiddenRecordSamples = hiddenRecords.slice(0, 20);
 
   const debug = {
     directorUserId: user.person.userId,
@@ -294,9 +295,9 @@ export function buildReviewListData(
     ).length,
     visibleRecords: pending.length,
     hiddenReasonsSummary,
-    hiddenRecords,
+    hiddenRecords: hiddenRecordSamples,
     groupFallbacks,
-    groupMismatchSamples: hiddenRecords
+    groupMismatchSamples: hiddenRecordSamples
       .filter((record) => record.hiddenReason === "group_mismatch")
       .slice(0, 5)
   };

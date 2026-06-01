@@ -12,6 +12,7 @@ import {
 } from "./constants";
 import { listRecords } from "./bitable";
 import { formatDate } from "./dates";
+import { recordNormalizePerf } from "./perf";
 import type {
   Account,
   BitableRecord,
@@ -23,6 +24,8 @@ import type {
 } from "./types";
 
 export type RawFields = Record<string, unknown>;
+
+const unresolvedOptionWarnings = new Set<string>();
 
 export function fieldText(value: unknown): string {
   if (value == null) return "";
@@ -76,6 +79,9 @@ function warnUnresolvedOption(
 ) {
   const value = fieldText(rawValue);
   if (!/^opt[a-z0-9]+$/i.test(value)) return;
+  const warningKey = `${table}:${fieldName}:${value}`;
+  if (unresolvedOptionWarnings.has(warningKey)) return;
+  unresolvedOptionWarnings.add(warningKey);
 
   console.warn("[Bitable option unresolved]", {
     table,
@@ -370,7 +376,8 @@ export function toPushLogFields(record: PushLogRecord): RawFields {
 
 export async function getPeople() {
   const records = await listRecords<RawFields>("people");
-  return records.map((record) => ({
+  const startedAt = performance.now();
+  const mapped = records.map((record) => ({
     recordId: record.recordId,
     fields: (() => {
       warnUnresolvedOption(
@@ -382,19 +389,25 @@ export async function getPeople() {
       return mapPerson(record.fields);
     })()
   }));
+  recordNormalizePerf(performance.now() - startedAt);
+  return mapped;
 }
 
 export async function getAccounts() {
   const records = await listRecords<RawFields>("accounts");
-  return records.map((record) => ({
+  const startedAt = performance.now();
+  const mapped = records.map((record) => ({
     recordId: record.recordId,
     fields: mapAccount(record.fields)
   }));
+  recordNormalizePerf(performance.now() - startedAt);
+  return mapped;
 }
 
 export async function getDailyRecords() {
   const records = await listRecords<RawFields>("daily");
-  return records.map((record) => ({
+  const startedAt = performance.now();
+  const mapped = records.map((record) => ({
     recordId: record.recordId,
     fields: (() => {
       warnUnresolvedOption(
@@ -406,22 +419,30 @@ export async function getDailyRecords() {
       return mapDaily(record.fields);
     })()
   }));
+  recordNormalizePerf(performance.now() - startedAt);
+  return mapped;
 }
 
 export async function getReviewRecords() {
   const records = await listRecords<RawFields>("reviews");
-  return records.map((record) => ({
+  const startedAt = performance.now();
+  const mapped = records.map((record) => ({
     recordId: record.recordId,
     fields: mapReview(record.fields)
   }));
+  recordNormalizePerf(performance.now() - startedAt);
+  return mapped;
 }
 
 export async function getRankingRecords() {
   const records = await listRecords<RawFields>("rankings");
-  return records.map((record) => ({
+  const startedAt = performance.now();
+  const mapped = records.map((record) => ({
     recordId: record.recordId,
     fields: mapRanking(record.fields)
   }));
+  recordNormalizePerf(performance.now() - startedAt);
+  return mapped;
 }
 
 export async function getPushLogRecords() {

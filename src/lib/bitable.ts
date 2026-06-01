@@ -1,5 +1,6 @@
 import { getEnv } from "./env";
 import { getTenantAccessToken, getWikiNodeInfo } from "./feishu";
+import { recordFieldsMetaPerf, recordTablePerf } from "./perf";
 import type { BitableRecord } from "./types";
 
 export const TABLE_NAMES = {
@@ -68,6 +69,10 @@ export type TableFieldMeta = {
   optionNameByField: Record<string, Record<string, string>>;
 };
 
+export type ListRecordsOptions = {
+  useCache?: boolean;
+};
+
 export class BitableError extends Error {
   status: number;
   code?: number;
@@ -92,7 +97,29 @@ export class BitableError extends Error {
 
 let appTokenCache: string | undefined;
 let tableIdCache: Partial<Record<TableKey, string>> | undefined;
-let fieldMetaCache: Partial<Record<TableKey, TableFieldMeta>> = {};
+const FIELD_META_TTL_MS = 10 * 60 * 1000;
+const RECORD_CACHE_TTL_MS: Record<TableKey, number> = {
+  people: 60 * 1000,
+  accounts: 60 * 1000,
+  daily: 15 * 1000,
+  reviews: 15 * 1000,
+  rankings: 60 * 1000,
+  pushLogs: 60 * 1000
+};
+
+let fieldMetaCache = new Map<
+  string,
+  { expiresAt: number; meta: TableFieldMeta; table: TableKey }
+>();
+let recordCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    records: BitableRecord<unknown>[];
+    table?: TableKey;
+  }
+>();
+let unresolvedOptionWarnings = new Set<string>();
 
 async function bitableFetch<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -235,6 +262,17 @@ function envTableName(table: TableKey) {
   return names[table];
 }
 
+async function getTableTarget(tableIdOrKey: string) {
+  const table = isTableKey(tableIdOrKey) ? tableIdOrKey : undefined;
+  const tableId = table ? await getTableId(table) : tableIdOrKey;
+  const appToken = await getBitableAppToken();
+  return { appToken, table, tableId };
+}
+
+function cacheKey(appToken: string, tableId: string) {
+  return `${appToken}:${tableId}`;
+}
+
 async function tablePath(tableIdOrKey: string) {
   const tableId = isTableKey(tableIdOrKey)
     ? await getTableId(tableIdOrKey)
@@ -250,7 +288,15 @@ async function fieldsPath(tableIdOrKey: string) {
 }
 
 async function getTableFieldMeta(table: TableKey): Promise<TableFieldMeta> {
-  if (fieldMetaCache[table]) return fieldMetaCache[table]!;
+  const target = await getTableTarget(table);
+  const key = cacheKey(target.appToken, target.tableId);
+  const cached = fieldMetaCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    recordFieldsMetaPerf({ ms: 0, cacheHit: true });
+    return cached.meta;
+  }
+
+  const startedAt = performance.now();
 
   const fields: RawField[] = [];
   let pageToken: string | undefined;
@@ -286,8 +332,23 @@ async function getTableFieldMeta(table: TableKey): Promise<TableFieldMeta> {
   }
 
   const meta = { fieldNames, optionNameByField };
-  fieldMetaCache = { ...fieldMetaCache, [table]: meta };
+  fieldMetaCache.set(key, {
+    expiresAt: Date.now() + FIELD_META_TTL_MS,
+    meta,
+    table
+  });
+  recordFieldsMetaPerf({ ms: performance.now() - startedAt, cacheHit: false });
   return meta;
+}
+
+export async function invalidateFieldMetaCache(table?: TableKey) {
+  if (!table) {
+    fieldMetaCache.clear();
+    return;
+  }
+
+  const target = await getTableTarget(table);
+  fieldMetaCache.delete(cacheKey(target.appToken, target.tableId));
 }
 
 export async function tableHasField(table: TableKey, fieldName: string) {
@@ -362,6 +423,9 @@ function resolveOptionText(
   if (resolved) return resolved;
 
   if (/^opt[a-z0-9]+$/i.test(value)) {
+    const warningKey = `${table}:${fieldName}:${value}`;
+    if (unresolvedOptionWarnings.has(warningKey)) return value;
+    unresolvedOptionWarnings.add(warningKey);
     console.warn("[Bitable option unresolved]", {
       table,
       fieldName,
@@ -394,11 +458,28 @@ async function writableFieldsForTable<T extends Record<string, unknown>>(
 }
 
 export async function listRecords<T>(
-  tableIdOrKey: string
+  tableIdOrKey: string,
+  options: ListRecordsOptions = {}
 ): Promise<BitableRecord<T>[]> {
+  const useCache = options.useCache !== false;
+  const target = await getTableTarget(tableIdOrKey);
+  const recordsCacheKey = cacheKey(target.appToken, target.tableId);
+  const cached = useCache ? recordCache.get(recordsCacheKey) : undefined;
+  if (cached && cached.expiresAt > Date.now()) {
+    const records = cached.records as BitableRecord<T>[];
+    recordTablePerf({
+      table: target.table,
+      ms: 0,
+      records: records.length,
+      cacheHit: true
+    });
+    return records.map((record) => ({ ...record }));
+  }
+
+  const startedAt = performance.now();
   const records: BitableRecord<T>[] = [];
   let pageToken: string | undefined;
-  const table = isTableKey(tableIdOrKey) ? tableIdOrKey : undefined;
+  const table = target.table;
   const fieldMeta = table ? await getTableFieldMeta(table) : undefined;
 
   do {
@@ -420,7 +501,46 @@ export async function listRecords<T>(
     pageToken = data.has_more ? data.page_token : undefined;
   } while (pageToken);
 
+  if (useCache && table) {
+    recordCache.set(recordsCacheKey, {
+      expiresAt: Date.now() + RECORD_CACHE_TTL_MS[table],
+      records: records as BitableRecord<unknown>[],
+      table
+    });
+  }
+  recordTablePerf({
+    table,
+    ms: performance.now() - startedAt,
+    records: records.length,
+    cacheHit: false
+  });
   return records;
+}
+
+export async function invalidateRecordsCache(table?: TableKey) {
+  if (!table) {
+    recordCache.clear();
+    return;
+  }
+
+  const target = await getTableTarget(table);
+  recordCache.delete(cacheKey(target.appToken, target.tableId));
+}
+
+export function getRecordsCacheTtlMs(table: TableKey) {
+  return RECORD_CACHE_TTL_MS[table];
+}
+
+export function getFieldMetaCacheTtlMs() {
+  return FIELD_META_TTL_MS;
+}
+
+export function resetBitableCachesForTest() {
+  appTokenCache = undefined;
+  tableIdCache = undefined;
+  fieldMetaCache.clear();
+  recordCache.clear();
+  unresolvedOptionWarnings.clear();
 }
 
 export async function createRecord<T extends Record<string, unknown>>(
@@ -436,6 +556,10 @@ export async function createRecord<T extends Record<string, unknown>>(
       })
     }
   );
+
+  if (isTableKey(tableIdOrKey)) {
+    await invalidateRecordsCache(tableIdOrKey);
+  }
 
   return {
     recordId: data.record.record_id,
@@ -457,6 +581,10 @@ export async function updateRecord<T extends Record<string, unknown>>(
       })
     }
   );
+
+  if (isTableKey(tableIdOrKey)) {
+    await invalidateRecordsCache(tableIdOrKey);
+  }
 
   return {
     recordId: data.record.record_id,

@@ -1,5 +1,6 @@
 import { getCurrentUser, getSessionIdentity } from "@/lib/auth";
 import { jsonError, jsonOk, readJson } from "@/lib/api";
+import { withApiPerf } from "@/lib/perf";
 import {
   getDailyPageData,
   submitDaily,
@@ -9,17 +10,20 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try {
-    const user = await getCurrentUser();
-    return jsonOk(await getDailyPageData(user));
-  } catch (error) {
-    return jsonError(error);
-  }
+  return withApiPerf("/api/daily", async () => {
+    try {
+      const user = await getCurrentUser();
+      return jsonOk(await getDailyPageData(user));
+    } catch (error) {
+      return jsonError(error);
+    }
+  });
 }
 
 export async function POST(request: Request) {
-  let input: DailySubmitInput | undefined;
-  let user: Awaited<ReturnType<typeof getCurrentUser>> | undefined;
+  return withApiPerf("/api/daily", async () => {
+    let input: DailySubmitInput | undefined;
+    let user: Awaited<ReturnType<typeof getCurrentUser>> | undefined;
 
   try {
     const identity = await getSessionIdentity();
@@ -95,8 +99,9 @@ export async function POST(request: Request) {
         headers: { "Content-Type": "application/json; charset=utf-8" }
       });
     }
-    return jsonError(error);
-  }
+      return jsonError(error);
+    }
+  });
 }
 
 function parseJsonBody(body: string) {

@@ -7,7 +7,7 @@ import {
   YES_NO,
   type ReviewGrade
 } from "./constants";
-import { createRecord, updateRecord } from "./bitable";
+import { createRecord, invalidateRecordsCache, updateRecord } from "./bitable";
 import { canSeeGroup } from "./auth";
 import { buildRankingRows } from "./domain";
 import { formatDate, isWithinTPlusOne, monthOf, nowIso, today } from "./dates";
@@ -122,6 +122,7 @@ export async function recomputeRanking(month: string) {
       await createRecord("rankings", toRankingFields(record));
     }
   }
+  await invalidateRecordsCache("rankings");
 
   return {
     month,
