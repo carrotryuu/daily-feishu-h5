@@ -108,8 +108,9 @@ export function mapDaily(fields: RawFields): DailyRecord {
   const f = TABLE_FIELDS.daily;
   return {
     dailyId: text(fields[f.dailyId]),
-    dailyType: (text(fields[f.dailyType]) ||
-      DAILY_TYPES.production) as DailyRecord["dailyType"],
+    dailyType: (f.dailyType
+      ? text(fields[f.dailyType]) || DAILY_TYPES.production
+      : DAILY_TYPES.production) as DailyRecord["dailyType"],
     date: date(fields[f.date]),
     userId: text(fields[f.userId]),
     name: text(fields[f.name]),
@@ -126,7 +127,7 @@ export function mapDaily(fields: RawFields): DailyRecord {
     roughCutSeconds: number(fields[f.roughCutSeconds]),
     hasIssue: text(fields[f.hasIssue]) as DailyRecord["hasIssue"],
     issueNote: text(fields[f.issueNote]),
-    nonProductionNote: text(fields[f.nonProductionNote]),
+    nonProductionNote: f.nonProductionNote ? text(fields[f.nonProductionNote]) : "",
     status: text(fields[f.status]) as DailyRecord["status"],
     includeRanking: text(fields[f.includeRanking]) as DailyRecord["includeRanking"],
     month: text(fields[f.month]),
@@ -172,30 +173,41 @@ export function mapRanking(fields: RawFields): RankingRecord {
 
 export function toDailyFields(record: DailyRecord): RawFields {
   const f = TABLE_FIELDS.daily;
-  return {
-    [f.dailyType]: record.dailyType,
-    [f.date]: dateToMs(record.date),
-    [f.userId]: record.userId,
-    [f.name]: record.name,
-    [f.group]: record.group,
-    [f.changedAccount]: record.changedAccount,
-    [f.account]: record.account,
-    [f.platform]: record.platform,
-    [f.accountType]: record.accountType,
-    [f.previousCredits]: record.previousCredits,
-    [f.newAccountStartCredits]: record.newAccountStartCredits,
-    [f.remainingCredits]: record.remainingCredits,
-    [f.consumedCredits]: record.consumedCredits ?? 0,
-    [f.assetCount]: record.assetCount,
-    [f.roughCutSeconds]: record.roughCutSeconds,
-    [f.hasIssue]: record.hasIssue,
-    [f.issueNote]: record.issueNote || "",
-    [f.nonProductionNote]: record.nonProductionNote || "",
-    [f.status]: record.status,
-    [f.includeRanking]: record.includeRanking,
-    [f.month]: record.month,
-    [f.submittedAt]: dateTimeToMs(record.submittedAt)
-  };
+  return compactFields([
+    [f.dailyType, record.dailyType],
+    [f.date, dateToMs(record.date)],
+    [f.userId, record.userId],
+    [f.name, record.name],
+    [f.group, record.group],
+    [f.changedAccount, record.changedAccount],
+    [f.account, record.account],
+    [f.platform, record.platform],
+    [f.accountType, record.accountType],
+    [f.previousCredits, record.previousCredits],
+    [f.newAccountStartCredits, record.newAccountStartCredits],
+    [f.remainingCredits, record.remainingCredits],
+    [f.consumedCredits, record.consumedCredits ?? 0],
+    [f.assetCount, record.assetCount],
+    [f.roughCutSeconds, record.roughCutSeconds],
+    [f.hasIssue, record.hasIssue],
+    [f.issueNote, record.issueNote || ""],
+    [f.nonProductionNote, record.nonProductionNote || ""],
+    [f.status, record.status],
+    [f.includeRanking, record.includeRanking],
+    [f.month, record.month],
+    [f.submittedAt, dateTimeToMs(record.submittedAt)]
+  ]);
+}
+
+function compactFields(entries: Array<[string | null | undefined, unknown]>) {
+  const fields: RawFields = {};
+
+  for (const [name, value] of entries) {
+    if (!name || value == null) continue;
+    fields[name] = value;
+  }
+
+  return fields;
 }
 
 export function toReviewFields(record: ReviewRecord): RawFields {

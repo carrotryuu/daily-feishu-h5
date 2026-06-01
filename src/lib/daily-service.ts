@@ -319,6 +319,11 @@ function resolveUsableAccountRecord(
 async function createDailyRecord(record: DailyRecord) {
   const fields = toDailyFields(record);
 
+  console.info("[Daily fields to write]", {
+    table: "daily",
+    fields: Object.keys(fields)
+  });
+
   try {
     return await createRecord("daily", fields);
   } catch (error) {
