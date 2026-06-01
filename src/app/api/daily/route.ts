@@ -63,11 +63,15 @@ export async function POST(request: Request) {
     });
     return jsonOk(result, { status: 201 });
   } catch (error) {
-    if (error instanceof Response && error.status === 403) {
+    if (error instanceof Response) {
       const body = await error.text().catch(() => "");
-      const payload = parseJsonBody(body);
-      console.warn("[Daily submit forbidden]", {
-        reason: payload?.reason || payload?.error || error.statusText,
+      const parsed = parseJsonBody(body);
+      console.error("[Daily submit response error]", {
+        status: error.status,
+        error: parsed?.error || error.statusText,
+        reason: parsed?.reason || null,
+        feishuError: parsed?.feishuError || null,
+        debug: parsed?.debug || null,
         userId: user?.person.userId ?? null,
         role: user?.person.role ?? null,
         enabled: user?.person.enabled ?? null,
@@ -76,17 +80,20 @@ export async function POST(request: Request) {
         accountRecordId: input?.accountRecordId || null
       });
 
-      return new Response(
-        body ||
-          JSON.stringify({
-            error: "FORBIDDEN",
-            reason: "当前请求无权提交日报"
-          }),
-        {
-          status: 403,
-          headers: { "Content-Type": "application/json; charset=utf-8" }
-        }
-      );
+      const responseBody =
+        parsed && body
+          ? body
+          : JSON.stringify({
+              error: parsed?.error || "REQUEST_FAILED",
+              reason: parsed?.reason || body || error.statusText || "请求失败",
+              feishuError: parsed?.feishuError || null,
+              debug: parsed?.debug || null
+            });
+
+      return new Response(responseBody, {
+        status: error.status,
+        headers: { "Content-Type": "application/json; charset=utf-8" }
+      });
     }
     return jsonError(error);
   }
@@ -94,7 +101,12 @@ export async function POST(request: Request) {
 
 function parseJsonBody(body: string) {
   try {
-    return JSON.parse(body) as { error?: string; reason?: string };
+    return JSON.parse(body) as {
+      error?: string;
+      reason?: string;
+      feishuError?: unknown;
+      debug?: unknown;
+    };
   } catch {
     return undefined;
   }

@@ -317,10 +317,21 @@ function resolveUsableAccountRecord(
 }
 
 async function createDailyRecord(record: DailyRecord) {
+  const fields = toDailyFields(record);
+
   try {
-    return await createRecord("daily", toDailyFields(record));
+    return await createRecord("daily", fields);
   } catch (error) {
     if (error instanceof BitableError) {
+      console.error("[Daily submit write failed]", {
+        table: "daily",
+        status: error.status,
+        code: error.code,
+        message: error.feishuMessage || error.message,
+        path: error.path,
+        fields: Object.keys(fields)
+      });
+
       throw new Response(
         JSON.stringify({
           error: "BITABLE_WRITE_FAILED",

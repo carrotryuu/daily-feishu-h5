@@ -183,7 +183,11 @@ export default function DailyPage() {
       </div>
 
       {loading ? <div className="notice">正在读取数据...</div> : null}
-      {error ? <div className="notice error">{error}</div> : null}
+      {error ? (
+        <div className="notice error" style={{ whiteSpace: "pre-line" }}>
+          {error}
+        </div>
+      ) : null}
       {message ? <div className="notice success">{message}</div> : null}
 
       {data ? (
@@ -402,7 +406,30 @@ async function readResponsePayload(response: Response) {
 function formatSubmitError(payload: Record<string, unknown>) {
   const reason = typeof payload.reason === "string" ? payload.reason : "";
   const error = typeof payload.error === "string" ? payload.error : "";
+  const feishuError =
+    payload.feishuError &&
+    typeof payload.feishuError === "object" &&
+    !Array.isArray(payload.feishuError)
+      ? (payload.feishuError as Record<string, unknown>)
+      : null;
+
+  if (feishuError) {
+    return [
+      `error: ${error || "-"}`,
+      `reason: ${reason || "-"}`,
+      `feishuError.status: ${formatErrorValue(feishuError.status)}`,
+      `feishuError.code: ${formatErrorValue(feishuError.code)}`,
+      `feishuError.message: ${formatErrorValue(feishuError.message)}`,
+      `feishuError.path: ${formatErrorValue(feishuError.path)}`
+    ].join("\n");
+  }
 
   if (reason && error && error !== reason) return `${error}：${reason}`;
   return reason || error || "提交失败";
+}
+
+function formatErrorValue(value: unknown) {
+  if (typeof value === "string") return value || "-";
+  if (typeof value === "number") return String(value);
+  return "-";
 }
