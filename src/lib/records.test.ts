@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  resolveBitableRecordFields,
+  type TableFieldMeta
+} from "./bitable";
+import {
   ACCOUNT_TYPES,
   DAILY_STATUS,
   DAILY_TYPES,
@@ -39,6 +43,32 @@ test("maps resolved people group option name", () => {
   assert.equal(person.group, "孙导组");
 });
 
+test("maps people group option id to Sun group after bitable resolution", () => {
+  const meta: TableFieldMeta = {
+    fieldNames: new Set([TABLE_FIELDS.people.group]),
+    optionNameByField: {
+      [TABLE_FIELDS.people.group]: { opt_sun: "孙导组" }
+    }
+  };
+  const fields = resolveBitableRecordFields(
+    "people",
+    {
+      record_id: "person_1",
+      fields: {
+        [TABLE_FIELDS.people.userId]: "director_1",
+        [TABLE_FIELDS.people.name]: "孙导",
+        [TABLE_FIELDS.people.role]: ROLES.director,
+        [TABLE_FIELDS.people.group]: "opt_sun",
+        [TABLE_FIELDS.people.enabled]: YES_NO.yes
+      }
+    },
+    meta
+  );
+  const person = mapPerson(fields);
+
+  assert.equal(person.group, "孙导组");
+});
+
 test("maps resolved account type option name", () => {
   const account = mapAccount({
     [TABLE_FIELDS.accounts.accountName]: "赵国微生产账号",
@@ -68,6 +98,29 @@ test("maps resolved daily group option name", () => {
 
   assert.equal(daily.group, "孙导组");
   assert.equal(daily.status, DAILY_STATUS.pending);
+});
+
+test("maps daily group option id to Sun group after bitable resolution", () => {
+  const meta: TableFieldMeta = {
+    fieldNames: new Set([TABLE_FIELDS.daily.group]),
+    optionNameByField: {
+      [TABLE_FIELDS.daily.group]: { opt_sun: "孙导组" }
+    }
+  };
+  const fields = resolveBitableRecordFields(
+    "daily",
+    {
+      record_id: "daily_1",
+      fields: {
+        [TABLE_FIELDS.daily.group]: "opt_sun",
+        [TABLE_FIELDS.daily.status]: DAILY_STATUS.pending
+      }
+    },
+    meta
+  );
+  const daily = mapDaily(fields);
+
+  assert.equal(daily.group, "孙导组");
 });
 
 test("infers other daily type when type field is empty but other period content exists", () => {

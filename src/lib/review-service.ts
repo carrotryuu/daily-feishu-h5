@@ -9,11 +9,12 @@ import {
   type ReviewGrade
 } from "./constants";
 import { createRecord, updateRecord } from "./bitable";
-import { canSeeGroup } from "./auth";
 import { calculateConsumedCredits } from "./domain";
 import { formatDate, nowIso } from "./dates";
 import {
   getDailyRecords,
+  normalizeFieldText,
+  normalizeGroupName,
   toReviewFields,
   type RawFields
 } from "./records";
@@ -72,7 +73,7 @@ function assertCanReview(user: CurrentUser) {
     throw new Response("只有导演和管理岗/制片可以审核日报", { status: 403 });
   }
 
-  if (role === ROLES.director && !user.person.group) {
+  if (role === ROLES.director && !normalizeGroupName(user.person.group)) {
     throw new Response("当前导演缺少所属小组，无法判断可审核日报", { status: 400 });
   }
 }
@@ -99,7 +100,7 @@ export async function submitReviewWithDependencies(
   if (!canReviewGroup(user, daily.fields.group)) {
     throw new Response("不能审核其他小组日报", { status: 403 });
   }
-  if (daily.fields.status !== DAILY_STATUS.pending) {
+  if (normalizeFieldText(daily.fields.status) !== DAILY_STATUS.pending) {
     throw new Response("只有待审核日报可以提交审核", { status: 400 });
   }
 
@@ -164,15 +165,18 @@ export function buildReviewListData(
     date: string;
     userId: string;
     name: string;
-    group: string;
     status: string;
+    rawStatus: string;
+    normalizedStatus: string;
+    group: string;
+    rawGroup: string;
+    normalizedGroup: string;
+    directorGroup: string;
+    rawDirectorGroup: string;
+    normalizedDirectorGroup: string;
     account: string;
     otherPeriodContent: string;
     hiddenReason: string;
-    directorGroup?: string;
-    dailyGroup?: string;
-    rawDirectorGroup?: string;
-    rawDailyGroup?: string;
   }> = [];
   const pending = [];
 
@@ -184,15 +188,18 @@ export function buildReviewListData(
         date: record.fields.date,
         userId: record.fields.userId,
         name: record.fields.name,
-        group: record.fields.group,
         status: record.fields.status,
+        rawStatus: fieldDebugText(record.fields.status),
+        normalizedStatus: normalizeFieldText(record.fields.status),
+        group: record.fields.group,
+        rawGroup: fieldDebugText(record.fields.group),
+        normalizedGroup: normalizeGroupName(record.fields.group),
+        directorGroup: user.person.group,
+        rawDirectorGroup: fieldDebugText(user.person.group),
+        normalizedDirectorGroup: normalizeGroupName(user.person.group),
         account: record.fields.account,
         otherPeriodContent: record.fields.nonProductionNote || "",
-        hiddenReason,
-        directorGroup: user.person.group,
-        dailyGroup: record.fields.group,
-        rawDirectorGroup: user.person.group,
-        rawDailyGroup: record.fields.group
+        hiddenReason
       });
       continue;
     }
@@ -219,10 +226,15 @@ export function buildReviewListData(
     directorRole: user.person.role,
     directorGroup: user.person.group,
     totalDailyRecords: daily.length,
-    pendingRecords: daily.filter((record) => record.fields.status === DAILY_STATUS.pending).length,
+    pendingRecords: daily.filter(
+      (record) => normalizeFieldText(record.fields.status) === DAILY_STATUS.pending
+    ).length,
     visibleRecords: pending.length,
     hiddenReasonsSummary,
-    hiddenRecords
+    hiddenRecords,
+    groupMismatchSamples: hiddenRecords
+      .filter((record) => record.hiddenReason === "group_mismatch")
+      .slice(0, 5)
   };
 
   return { pending, debug };
@@ -232,10 +244,14 @@ function hiddenReviewReason(
   user: CurrentUser,
   record: BitableRecord<DailyRecord>
 ) {
-  if (!record.fields.status) return "invalid_status_field";
-  if (record.fields.status !== DAILY_STATUS.pending) return "status_not_pending";
-  if (!record.fields.group) return "missing_group";
-  if (!user.person.group && normalizeRole(String(user.person.role)) !== ROLES.manager) {
+  const normalizedStatus = normalizeFieldText(record.fields.status);
+  if (!normalizedStatus) return "invalid_status_field";
+  if (normalizedStatus !== DAILY_STATUS.pending) return "status_not_pending";
+  if (!normalizeGroupName(record.fields.group)) return "missing_group";
+  if (
+    !normalizeGroupName(user.person.group) &&
+    normalizeRole(String(user.person.role)) !== ROLES.manager
+  ) {
     return "director_group_missing";
   }
   if (!canReviewGroup(user, record.fields.group)) return "group_mismatch";
@@ -275,7 +291,13 @@ function reviewDecision(input: {
 
 function canReviewGroup(user: CurrentUser, group: string) {
   const role = normalizeRole(String(user.person.role));
-  return role === ROLES.manager || canSeeGroup(user.person, group);
+  const directorGroup = normalizeGroupName(user.person.group);
+  const dailyGroup = normalizeGroupName(group);
+  return role === ROLES.manager || directorGroup === "全部" || dailyGroup === directorGroup;
+}
+
+function fieldDebugText(value: unknown) {
+  return JSON.stringify(value) ?? "";
 }
 
 function isWithinTPlusOneForReview(date: string, reviewedAtDate: string) {

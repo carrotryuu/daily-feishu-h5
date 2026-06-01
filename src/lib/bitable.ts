@@ -275,7 +275,7 @@ async function getTableFieldMeta(table: TableKey): Promise<TableFieldMeta> {
     const optionMap: Record<string, string> = {};
 
     for (const option of options) {
-      const id = option.id;
+      const id = option.id ?? (option as { option_id?: string }).option_id;
       const name = option.name ?? option.text ?? option.value;
       if (id && name) optionMap[id] = String(name);
     }
@@ -333,6 +333,8 @@ function resolveFieldValue(
 
   if (value && typeof value === "object") {
     const raw = value as Record<string, unknown>;
+    if (typeof raw.text === "string") return raw.text;
+    if (typeof raw.name === "string") return raw.name;
     const optionId = raw.id ?? raw.option_id ?? raw.value;
     if (typeof optionId === "string") {
       const resolved = resolveOptionText(

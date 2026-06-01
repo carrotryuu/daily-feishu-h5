@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  resolveBitableRecordFields,
+  type TableFieldMeta
+} from "./bitable";
+import {
   ACCOUNT_TYPES,
   DAILY_STATUS,
   DAILY_TYPES,
@@ -8,6 +12,7 @@ import {
   TABLE_FIELDS,
   YES_NO
 } from "./constants";
+import { mapDaily } from "./records";
 import {
   buildReviewListData,
   buildVisiblePendingDailyRecords,
@@ -279,6 +284,53 @@ test("director group Sun can see daily group Sun after option id resolution", ()
   assert.equal(rows.length, 1);
 });
 
+test("director group Sun can see daily group Sun with surrounding spaces", () => {
+  const rows = buildVisiblePendingDailyRecords(director("孙导组"), [
+    daily("sun-group", { group: " 孙导组 " })
+  ]);
+
+  assert.equal(rows.length, 1);
+});
+
+test("director group Sun can see daily group Sun with internal spaces", () => {
+  const rows = buildVisiblePendingDailyRecords(director("孙导组"), [
+    daily("sun-group", { group: " 孙 导 组 " })
+  ]);
+
+  assert.equal(rows.length, 1);
+});
+
+test("director group Sun can see daily group option id after metadata resolution", () => {
+  const meta: TableFieldMeta = {
+    fieldNames: new Set([TABLE_FIELDS.daily.group]),
+    optionNameByField: {
+      [TABLE_FIELDS.daily.group]: { opt_sun: "孙导组" }
+    }
+  };
+  const fields = resolveBitableRecordFields(
+    "daily",
+    {
+      record_id: "daily_1",
+      fields: {
+        [TABLE_FIELDS.daily.date]: "2026-05-27",
+        [TABLE_FIELDS.daily.userId]: "animator_1",
+        [TABLE_FIELDS.daily.name]: "动画师",
+        [TABLE_FIELDS.daily.group]: "opt_sun",
+        [TABLE_FIELDS.daily.status]: DAILY_STATUS.pending
+      }
+    },
+    meta
+  );
+  const rows = buildVisiblePendingDailyRecords(director("孙导组"), [
+    {
+      recordId: "daily_1",
+      fields: mapDaily(fields)
+    }
+  ]);
+
+  assert.equal(rows.length, 1);
+});
+
 test("director group Sun cannot see daily group Ma", () => {
   const data = buildReviewListData(director("孙导组"), [
     daily("ma-group", { group: "马导组" })
@@ -287,7 +339,11 @@ test("director group Sun cannot see daily group Ma", () => {
   assert.equal(data.pending.length, 0);
   assert.equal(data.debug.hiddenRecords[0].hiddenReason, "group_mismatch");
   assert.equal(data.debug.hiddenRecords[0].directorGroup, "孙导组");
-  assert.equal(data.debug.hiddenRecords[0].dailyGroup, "马导组");
+  assert.equal(data.debug.hiddenRecords[0].group, "马导组");
+  assert.equal(data.debug.hiddenRecords[0].rawGroup, "\"马导组\"");
+  assert.equal(data.debug.hiddenRecords[0].rawDirectorGroup, "\"孙导组\"");
+  assert.equal(data.debug.hiddenRecords[0].normalizedDirectorGroup, "孙导组");
+  assert.equal(data.debug.hiddenRecords[0].normalizedGroup, "马导组");
 });
 
 test("manager can see all pending daily records", () => {

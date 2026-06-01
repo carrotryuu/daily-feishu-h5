@@ -24,15 +24,11 @@ import type {
 
 export type RawFields = Record<string, unknown>;
 
-function text(value: unknown) {
+export function fieldText(value: unknown): string {
   if (value == null) return "";
   if (Array.isArray(value)) {
     return value
-      .map((item) =>
-        typeof item === "object" && item && "text" in item
-          ? String(item.text)
-          : String(item)
-      )
+      .map((item) => fieldText(item))
       .join("");
   }
   if (typeof value === "object") {
@@ -41,6 +37,52 @@ function text(value: unknown) {
     if ("value" in value) return String(value.value);
   }
   return String(value);
+}
+
+export function normalizeFieldText(value: unknown) {
+  return fieldText(value).trim();
+}
+
+export function normalizeGroupName(value: unknown) {
+  return groupText(value).replace(/[\s\u3000]+/g, "");
+}
+
+function text(value: unknown) {
+  return fieldText(value);
+}
+
+function groupText(value: unknown): string {
+  if (value == null) return "";
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const current = groupText(item);
+      if (current) return current;
+    }
+    return "";
+  }
+  if (typeof value === "object") {
+    if ("text" in value) return String(value.text).trim();
+    if ("name" in value) return String(value.name).trim();
+    if ("value" in value) return String(value.value).trim();
+  }
+  return String(value).trim();
+}
+
+function warnUnresolvedOption(
+  table: "people" | "daily",
+  fieldName: string,
+  rawValue: unknown,
+  recordId: string
+) {
+  const value = fieldText(rawValue);
+  if (!/^opt[a-z0-9]+$/i.test(value)) return;
+
+  console.warn("[Bitable option unresolved]", {
+    table,
+    fieldName,
+    rawValue: value,
+    recordId
+  });
 }
 
 function number(value: unknown) {
@@ -94,7 +136,7 @@ export function mapPerson(fields: RawFields): Person {
     userId: text(fields[f.userId]),
     name: text(fields[f.name]),
     role: normalizeRole(text(fields[f.role])),
-    group: firstText(fields, [f.group, "小组", "组别"]),
+    group: normalizeFieldText(firstText(fields, [f.group, "小组", "组别"])),
     enabled: normalizeEnabled(text(fields[f.enabled])),
     remark: text(fields[f.remark])
   };
@@ -105,7 +147,7 @@ export function mapAccount(fields: RawFields): Account {
   const platform = text(fields[f.platform]);
   return {
     accountId: text(fields[f.accountId]),
-    group: firstText(fields, [f.group, "小组", "组别"]),
+    group: normalizeFieldText(firstText(fields, [f.group, "小组", "组别"])),
     platform: isPlatformOption(platform) ? platform : "其他",
     accountName: firstText(fields, [f.accountName, "账号", "accountName"]),
     accountType: firstText(fields, [f.accountType, "账号类型"]) as Account["accountType"],
@@ -156,7 +198,7 @@ export function mapDaily(fields: RawFields): DailyRecord {
     date: date(fields[f.date]),
     userId: text(fields[f.userId]),
     name: text(fields[f.name]),
-    group: text(fields[f.group]).trim(),
+    group: normalizeFieldText(fields[f.group]),
     changedAccount: text(fields[f.changedAccount]) as DailyRecord["changedAccount"],
     account: text(fields[f.account]),
     platform: text(fields[f.platform]),
@@ -330,7 +372,15 @@ export async function getPeople() {
   const records = await listRecords<RawFields>("people");
   return records.map((record) => ({
     recordId: record.recordId,
-    fields: mapPerson(record.fields)
+    fields: (() => {
+      warnUnresolvedOption(
+        "people",
+        TABLE_FIELDS.people.group,
+        record.fields[TABLE_FIELDS.people.group],
+        record.recordId
+      );
+      return mapPerson(record.fields);
+    })()
   }));
 }
 
@@ -346,7 +396,15 @@ export async function getDailyRecords() {
   const records = await listRecords<RawFields>("daily");
   return records.map((record) => ({
     recordId: record.recordId,
-    fields: mapDaily(record.fields)
+    fields: (() => {
+      warnUnresolvedOption(
+        "daily",
+        TABLE_FIELDS.daily.group,
+        record.fields[TABLE_FIELDS.daily.group],
+        record.recordId
+      );
+      return mapDaily(record.fields);
+    })()
   }));
 }
 

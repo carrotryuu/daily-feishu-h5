@@ -30,6 +30,19 @@ type ReviewDebug = {
   pendingRecords: number;
   visibleRecords: number;
   hiddenReasonsSummary: Record<string, number>;
+  groupMismatchSamples?: Array<{
+    name: string;
+    status: string;
+    rawStatus: string;
+    normalizedStatus: string;
+    group: string;
+    rawGroup: string;
+    normalizedGroup: string;
+    directorGroup: string;
+    rawDirectorGroup: string;
+    normalizedDirectorGroup: string;
+    hiddenReason: string;
+  }>;
 };
 
 type ReviewData = {
@@ -195,7 +208,18 @@ export default function ReviewPage() {
             `诊断：日报总数 ${data.debug.totalDailyRecords}`,
             `待审核 ${data.debug.pendingRecords}`,
             `当前可见 ${data.debug.visibleRecords}`,
-            `隐藏原因 ${JSON.stringify(data.debug.hiddenReasonsSummary)}`
+            `隐藏原因 ${JSON.stringify(data.debug.hiddenReasonsSummary)}`,
+            ...(data.debug.groupMismatchSamples ?? []).map(
+              (record) =>
+                [
+                  `人员: ${record.name}`,
+                  `日报组 rawGroup: ${record.rawGroup}`,
+                  `日报组 normalizedGroup: ${record.normalizedGroup}`,
+                  `导演组 rawDirectorGroup: ${record.rawDirectorGroup}`,
+                  `导演组 normalizedDirectorGroup: ${record.normalizedDirectorGroup}`,
+                  `状态 normalizedStatus: ${record.normalizedStatus}`
+                ].join("\n")
+            )
           ].join("\n")}
         </div>
       ) : null}
