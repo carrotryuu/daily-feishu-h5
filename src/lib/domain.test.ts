@@ -32,14 +32,14 @@ test("calculates consumed credits with account change", () => {
   );
 });
 
-test("negative credits create abnormal daily decision", () => {
+test("negative credits keep submitted daily pending and excluded from ranking", () => {
   assert.deepEqual(
     defaultDailyDecision({
       consumedCredits: -1,
       accountType: ACCOUNT_TYPES.personal,
       date: "2026-05-27"
     }),
-    { status: DAILY_STATUS.abnormal, includeRanking: false }
+    { status: DAILY_STATUS.pending, includeRanking: false }
   );
 });
 

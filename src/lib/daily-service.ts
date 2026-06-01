@@ -204,7 +204,7 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
     hasIssue: hasIssue ? YES_NO.yes : YES_NO.no,
     issueNote,
     nonProductionNote: "",
-    status: decision.status,
+    status: DAILY_STATUS.pending,
     includeRanking: decision.includeRanking ? YES_NO.yes : YES_NO.no,
     month: monthOf(date),
     submittedAt: nowIso()

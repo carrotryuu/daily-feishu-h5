@@ -62,7 +62,7 @@ export function defaultDailyDecision(input: {
 
   if (input.consumedCredits < 0) {
     return {
-      status: DAILY_STATUS.abnormal,
+      status: DAILY_STATUS.pending,
       includeRanking: false
     };
   }
