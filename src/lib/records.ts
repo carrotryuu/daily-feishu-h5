@@ -4,7 +4,10 @@ import {
   ROLES,
   TABLE_FIELDS,
   YES_NO,
+  isEnabledValue,
   isPlatformOption,
+  normalizeEnabled,
+  normalizeRole,
   type ReviewGrade
 } from "./constants";
 import { listRecords } from "./bitable";
@@ -56,6 +59,14 @@ function dateTime(value: unknown) {
   return text(value);
 }
 
+function firstText(fields: RawFields, names: string[]) {
+  for (const name of names) {
+    const value = text(fields[name]);
+    if (value) return value;
+  }
+  return "";
+}
+
 function dateToMs(value: string) {
   return new Date(`${value}T00:00:00+08:00`).getTime();
 }
@@ -69,9 +80,9 @@ export function mapPerson(fields: RawFields): Person {
   return {
     userId: text(fields[f.userId]),
     name: text(fields[f.name]),
-    role: text(fields[f.role]) as Person["role"],
-    group: text(fields[f.group]),
-    enabled: text(fields[f.enabled]) as Person["enabled"],
+    role: normalizeRole(text(fields[f.role])),
+    group: firstText(fields, [f.group, "小组", "组别"]),
+    enabled: normalizeEnabled(text(fields[f.enabled])),
     remark: text(fields[f.remark])
   };
 }
@@ -322,6 +333,8 @@ export function activeDirectors(records: BitableRecord<Person>[]) {
 
 export function enabledAccounts(records: BitableRecord<Account>[]) {
   return records.filter(
-    (record) => record.fields.accountStatus === ACCOUNT_STATUS.enabled
+    (record) =>
+      record.fields.accountStatus === ACCOUNT_STATUS.enabled ||
+      isEnabledValue(record.fields.accountStatus)
   );
 }

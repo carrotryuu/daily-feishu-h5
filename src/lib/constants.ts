@@ -1,5 +1,6 @@
 export const ROLES = {
   animator: "动画师",
+  typist: "打字生",
   director: "导演",
   manager: "管理岗/制片"
 } as const;
@@ -61,6 +62,36 @@ export type DailyStatus = (typeof DAILY_STATUS)[keyof typeof DAILY_STATUS];
 export type DailyType = (typeof DAILY_TYPES)[keyof typeof DAILY_TYPES];
 export type YesNo = (typeof YES_NO)[keyof typeof YES_NO];
 export type ReviewGrade = "K1" | "K2" | "K3" | "K4" | "K5";
+
+export function normalizeRole(role: string): Role {
+  const value = role.trim();
+  const key = value.toLowerCase();
+
+  if (value === ROLES.animator || key === "animator") return ROLES.animator;
+  if (value === ROLES.typist || key === "typist") return ROLES.typist;
+  if (value === ROLES.director || key === "director") return ROLES.director;
+  if (
+    value === ROLES.manager ||
+    key === "manager" ||
+    key === "admin" ||
+    key === "administrator"
+  ) {
+    return ROLES.manager;
+  }
+
+  return value as Role;
+}
+
+export function isEnabledValue(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return ["是", "启用", "已启用", "在职", "true", "1", "yes", "enabled"].includes(
+    normalized
+  );
+}
+
+export function normalizeEnabled(value: string): YesNo {
+  return isEnabledValue(value) ? YES_NO.yes : YES_NO.no;
+}
 
 export function isPlatformOption(platform: string): platform is Platform {
   return (PLATFORM_OPTIONS as readonly string[]).includes(platform);

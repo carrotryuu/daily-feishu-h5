@@ -37,6 +37,7 @@ export function extractUserAccessToken(tokenResponse?: FeishuOAuthTokenResponse)
 export class FeishuOAuthError extends Error {
   feishuCode?: number;
   feishuMsg?: string;
+  feishuOpenId?: string;
   redirectUri: string;
   codeExists: boolean;
   response?: FeishuOAuthTokenResponse;
@@ -45,6 +46,7 @@ export class FeishuOAuthError extends Error {
     message: string;
     feishuCode?: number;
     feishuMsg?: string;
+    feishuOpenId?: string;
     redirectUri: string;
     codeExists: boolean;
     response?: FeishuOAuthTokenResponse;
@@ -53,6 +55,7 @@ export class FeishuOAuthError extends Error {
     this.name = "FeishuOAuthError";
     this.feishuCode = input.feishuCode;
     this.feishuMsg = input.feishuMsg;
+    this.feishuOpenId = input.feishuOpenId;
     this.redirectUri = input.redirectUri;
     this.codeExists = input.codeExists;
     this.response = input.response;

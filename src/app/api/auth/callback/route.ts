@@ -34,6 +34,7 @@ function buildOAuthErrorResponse(input: {
     message: feishuError.message,
     feishuCode: feishuError.feishuCode,
     feishuMsg: feishuError.feishuMsg,
+    feishuOpenId: feishuError.feishuOpenId,
     codeExists: feishuError.codeExists,
     ...diagnostics
   });
@@ -43,6 +44,7 @@ function buildOAuthErrorResponse(input: {
       error: feishuError.message,
       feishu_error_code: feishuError.feishuCode ?? null,
       feishu_error_msg: feishuError.feishuMsg ?? null,
+      feishu_open_id: feishuError.feishuOpenId ?? null,
       code_exists: feishuError.codeExists,
       ...diagnostics
     },
@@ -97,7 +99,10 @@ export async function GET(request: Request) {
     if (!user.user_id) {
       throw new FeishuOAuthError({
         message:
-          "飞书用户信息未返回 user_id，无法按人员表「用户ID」识别用户。请确认登录授权包含 auth:user.id:read，且应用已开通“获取用户 user ID”字段权限。",
+          `飞书用户信息未返回 user_id，无法按人员表「用户ID」识别用户。当前返回 open_id：${
+            user.open_id || "未获取到"
+          }。请确认登录授权包含 auth:user.id:read，且应用已开通“获取用户 user ID”字段权限。`,
+        feishuOpenId: user.open_id,
         redirectUri,
         codeExists: true
       });

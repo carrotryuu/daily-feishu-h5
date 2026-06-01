@@ -17,6 +17,16 @@ export async function jsonError(error: unknown) {
       });
     }
 
+    if (error.status === 403) {
+      return NextResponse.json(
+        {
+          error: "FORBIDDEN",
+          reason: body || error.statusText || "当前请求无权访问"
+        },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.json(
       { error: body || error.statusText || "请求处理失败" },
       { status: error.status }

@@ -37,6 +37,28 @@ type ListTablesResponse = {
   total?: number;
 };
 
+export class BitableError extends Error {
+  status: number;
+  code?: number;
+  path: string;
+  feishuMessage?: string;
+
+  constructor(input: {
+    status: number;
+    code?: number;
+    path: string;
+    message: string;
+    feishuMessage?: string;
+  }) {
+    super(input.message);
+    this.name = "BitableError";
+    this.status = input.status;
+    this.code = input.code;
+    this.path = input.path;
+    this.feishuMessage = input.feishuMessage;
+  }
+}
+
 let appTokenCache: string | undefined;
 let tableIdCache: Partial<Record<TableKey, string>> | undefined;
 
@@ -56,7 +78,13 @@ async function bitableFetch<T>(path: string, init: RequestInit = {}) {
   };
 
   if (!response.ok || payload.code !== 0) {
-    throw new Error(payload.msg || `飞书多维表格请求失败：${path}`);
+    throw new BitableError({
+      status: response.status,
+      code: payload.code,
+      path,
+      message: payload.msg || `飞书多维表格请求失败：${path}`,
+      feishuMessage: payload.msg
+    });
   }
 
   return payload.data;

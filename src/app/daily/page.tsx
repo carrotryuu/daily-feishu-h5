@@ -66,7 +66,7 @@ export default function DailyPage() {
   async function load() {
     setLoading(true);
     setError("");
-    const meResponse = await fetch("/api/me");
+    const meResponse = await fetch("/api/me", { credentials: "include" });
     const mePayload = await meResponse.json().catch(() => ({}));
     if (!meResponse.ok) {
       setError(mePayload.error || "无法识别当前登录用户");
@@ -74,7 +74,7 @@ export default function DailyPage() {
       return;
     }
 
-    const response = await fetch("/api/daily");
+    const response = await fetch("/api/daily", { credentials: "include" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       setError(payload.error || "无法读取日报页面数据");
@@ -118,27 +118,38 @@ export default function DailyPage() {
     setMessage("");
     setError("");
 
+    const selectedDate = form.dateMode === "today" ? data?.today : data?.yesterday;
     const response = await fetch("/api/daily", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        date: selectedDate,
+        reportType: form.dailyType,
         dateMode: form.dateMode,
         dailyType: form.dailyType,
         accountRecordId: isProduction ? form.selectedAccountId : "",
+        isAccountChanged: form.changedAccount,
         changedAccount: form.changedAccount,
         remainingCredits: Number(form.remainingCredits),
         assetCount: Number(form.assetCount),
+        videoDurationSeconds: Number(form.roughCutSeconds),
         roughCutSeconds: Number(form.roughCutSeconds),
+        hasGenerationIssue: form.hasIssue,
         hasIssue: form.hasIssue,
+        issueDescription: form.issueNote,
         issueNote: form.issueNote,
+        workNote: form.nonProductionNote,
+        note: form.nonProductionNote,
+        summary: form.nonProductionNote,
         nonProductionNote: form.nonProductionNote
       })
     });
-    const payload = await response.json().catch(() => ({}));
+    const payload = await readResponsePayload(response);
     setSaving(false);
 
     if (!response.ok) {
-      setError(payload.error || "提交失败");
+      setError(formatSubmitError(payload));
       return;
     }
 
@@ -376,4 +387,22 @@ export default function DailyPage() {
       ) : null}
     </main>
   );
+}
+
+async function readResponsePayload(response: Response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { reason: text };
+  }
+}
+
+function formatSubmitError(payload: Record<string, unknown>) {
+  const reason = typeof payload.reason === "string" ? payload.reason : "";
+  const error = typeof payload.error === "string" ? payload.error : "";
+
+  if (reason && error && error !== reason) return `${error}：${reason}`;
+  return reason || error || "提交失败";
 }

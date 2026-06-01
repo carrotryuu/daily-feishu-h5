@@ -1,6 +1,11 @@
 import { cookies } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { ROLES, TABLE_FIELDS, YES_NO, type Role } from "./constants";
+import {
+  ROLES,
+  TABLE_FIELDS,
+  isEnabledValue,
+  type Role
+} from "./constants";
 import { getEnv } from "./env";
 import { getPeople } from "./records";
 import type { CurrentUser, Person } from "./types";
@@ -162,6 +167,8 @@ function userRecognitionResponse(
   return new Response(
     JSON.stringify({
       error: message,
+      role: details.role,
+      enabled: details.enabled,
       userRecognition: details
     }),
     {
@@ -252,7 +259,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
     role: person.role || null
   };
 
-  if (person.enabled !== YES_NO.yes) {
+  if (!isEnabledValue(person.enabled)) {
     throw userRecognitionResponse(
       403,
       buildUserRecognitionMessage(matchedDetails),
