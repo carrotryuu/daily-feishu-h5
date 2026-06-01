@@ -84,9 +84,17 @@ export function normalizeRole(role: string): Role {
 
 export function isEnabledValue(value: string) {
   const normalized = value.trim().toLowerCase();
-  return ["是", "启用", "已启用", "在职", "true", "1", "yes", "enabled"].includes(
-    normalized
-  );
+  return [
+    "是",
+    "启用",
+    "已启用",
+    "可用",
+    "在职",
+    "true",
+    "1",
+    "yes",
+    "enabled"
+  ].includes(normalized);
 }
 
 export function normalizeEnabled(value: string): YesNo {
@@ -137,7 +145,7 @@ export const TABLE_FIELDS = {
     roughCutSeconds: "本日视频粗剪时长（s）",
     hasIssue: "是否存在生成问题",
     issueNote: "生成问题说明",
-    nonProductionNote: null,
+    nonProductionNote: "其他周期内容",
     status: "日报状态",
     includeRanking: "是否计入排行",
     month: "月份",

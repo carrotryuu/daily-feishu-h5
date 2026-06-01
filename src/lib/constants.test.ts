@@ -18,6 +18,7 @@ test("normalizes enabled values from people table", () => {
   assert.equal(normalizeEnabled("是"), YES_NO.yes);
   assert.equal(normalizeEnabled("启用"), YES_NO.yes);
   assert.equal(normalizeEnabled("已启用"), YES_NO.yes);
+  assert.equal(normalizeEnabled("可用"), YES_NO.yes);
   assert.equal(normalizeEnabled("在职"), YES_NO.yes);
   assert.equal(normalizeEnabled("true"), YES_NO.yes);
   assert.equal(normalizeEnabled("停用"), YES_NO.no);

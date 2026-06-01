@@ -1,5 +1,4 @@
 import {
-  ACCOUNT_TYPES,
   DAILY_STATUS,
   DAILY_TYPES,
   ROLES,
@@ -8,6 +7,10 @@ import {
   type DailyType,
   type Role
 } from "./constants";
+import {
+  buildDailyAccountsDiagnostics,
+  filterDailyAccountsForUser
+} from "./account-visibility";
 import { BitableError, createRecord } from "./bitable";
 import {
   calculateConsumedCredits,
@@ -15,7 +18,6 @@ import {
 } from "./domain";
 import { monthOf, nowIso, sortDateAsc, today, yesterday } from "./dates";
 import {
-  enabledAccounts,
   getAccounts,
   getDailyRecords,
   toDailyFields
@@ -57,7 +59,9 @@ export async function getDailyPageData(user: CurrentUser) {
   assertUserGroup(user);
 
   const [accounts, daily] = await Promise.all([getAccounts(), getDailyRecords()]);
-  const usableAccounts = filterUsableAccounts(user, enabledAccounts(accounts));
+  const usableAccounts = filterDailyAccountsForUser(user, accounts);
+
+  console.info("[Daily available accounts]", buildDailyAccountsDiagnostics(user, accounts));
 
   return {
     user: user.person,
@@ -94,7 +98,7 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
   const dailyType = resolveDailyType(input.reportType || input.dailyType);
   const isProduction = dailyType === DAILY_TYPES.production;
   const [accounts, daily] = await Promise.all([getAccounts(), getDailyRecords()]);
-  const usableAccounts = filterUsableAccounts(user, enabledAccounts(accounts));
+  const usableAccounts = filterDailyAccountsForUser(user, accounts);
   const changedAccount = input.isAccountChanged ?? input.changedAccount;
   const roughCutSeconds = input.videoDurationSeconds ?? input.roughCutSeconds;
   const hasIssue = input.hasGenerationIssue ?? input.hasIssue;
@@ -144,7 +148,7 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
     };
   }
 
-  if (!input.accountRecordId && !input.accountName) {
+  if (!input.accountRecordId) {
     throw new Response("生产日报必须选择账号", { status: 400 });
   }
 
@@ -268,10 +272,8 @@ function accountForbiddenResponse(
   input: DailySubmitInput,
   accounts: BitableRecord<Account>[]
 ) {
-  const accountRecord = accounts.find((record) =>
-    input.accountRecordId
-      ? record.recordId === input.accountRecordId
-      : record.fields.accountName === input.accountName
+  const accountRecord = accounts.find(
+    (record) => record.recordId === input.accountRecordId
   );
   const account = accountRecord?.fields;
 
@@ -307,11 +309,7 @@ function resolveUsableAccountRecord(
   accounts: BitableRecord<Account>[],
   usableAccounts: BitableRecord<Account>[]
 ) {
-  const matched = accounts.find((record) =>
-    input.accountRecordId
-      ? record.recordId === input.accountRecordId
-      : record.fields.accountName === input.accountName
-  );
+  const matched = accounts.find((record) => record.recordId === input.accountRecordId);
   if (!matched) return undefined;
   return usableAccounts.find((record) => record.recordId === matched.recordId);
 }
@@ -363,20 +361,6 @@ function resolveDailyType(value?: string): DailyType {
   if (!value) return DAILY_TYPES.production;
   if (allowedTypes.includes(value)) return value as DailyType;
   throw new Response("日报类型不正确", { status: 400 });
-}
-
-function filterUsableAccounts(
-  user: CurrentUser,
-  accounts: BitableRecord<Account>[]
-) {
-  return accounts.filter((record) => {
-    const account = record.fields;
-    if (account.group !== user.person.group) return false;
-    if (account.accountType === ACCOUNT_TYPES.personal) {
-      return account.userId === user.person.userId;
-    }
-    return true;
-  });
 }
 
 function findPreviousCredits(

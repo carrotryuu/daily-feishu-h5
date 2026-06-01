@@ -39,13 +39,13 @@ function text(value: unknown) {
 }
 
 function number(value: unknown) {
-  const parsed = Number(value);
+  const parsed = Number(text(value));
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function optionalNumber(value: unknown) {
   if (value == null || value === "") return undefined;
-  const parsed = Number(value);
+  const parsed = Number(text(value));
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
@@ -65,6 +65,14 @@ function firstText(fields: RawFields, names: string[]) {
     if (value) return value;
   }
   return "";
+}
+
+function firstNumber(fields: RawFields, names: string[]) {
+  for (const name of names) {
+    const value = optionalNumber(fields[name]);
+    if (value !== undefined) return value;
+  }
+  return 0;
 }
 
 function dateToMs(value: string) {
@@ -92,14 +100,31 @@ export function mapAccount(fields: RawFields): Account {
   const platform = text(fields[f.platform]);
   return {
     accountId: text(fields[f.accountId]),
-    group: text(fields[f.group]),
+    group: firstText(fields, [f.group, "小组", "组别"]),
     platform: isPlatformOption(platform) ? platform : "其他",
     accountName: text(fields[f.accountName]),
     accountType: text(fields[f.accountType]) as Account["accountType"],
-    accountStatus: text(fields[f.accountStatus]) as Account["accountStatus"],
-    animatorName: text(fields[f.animatorName]),
-    userId: text(fields[f.userId]),
-    startCredits: number(fields[f.startCredits]),
+    accountStatus: firstText(fields, [
+      f.accountStatus,
+      "可用状态",
+      "是否启用",
+      "启用状态"
+    ]) as Account["accountStatus"],
+    animatorName: firstText(fields, [
+      f.animatorName,
+      "人员",
+      "绑定人员",
+      "姓名",
+      "动画师",
+      "绑定人"
+    ]),
+    userId: firstText(fields, [f.userId, "绑定用户ID", "绑定人员ID"]),
+    startCredits: firstNumber(fields, [
+      f.startCredits,
+      "起始积分",
+      "初始积分",
+      "startCredits"
+    ]),
     remark: text(fields[f.remark])
   };
 }

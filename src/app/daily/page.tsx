@@ -1,14 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-
-type Account = {
-  recordId: string;
-  accountName: string;
-  platform: string;
-  accountType: string;
-  startCredits: number;
-};
+import {
+  accountSelectOptionLabel,
+  accountSelectOptionValue,
+  buildDailySubmitPayload,
+  canSubmitDailyForm,
+  findSelectedAccount,
+  isProductionDaily,
+  resolveSelectedAccountId,
+  selectedAccountStartCredits,
+  selectedAccountIdFromSelectValue,
+  type DailyFormAccount
+} from "@/lib/daily-form";
 
 type DailyRow = {
   recordId: string;
@@ -33,16 +37,9 @@ type DailyData = {
   };
   today: string;
   yesterday: string;
-  accounts: Account[];
+  accounts: DailyFormAccount[];
   recentDaily: DailyRow[];
 };
-
-function resolveSelectedAccountId(currentAccountId: string, accounts: Account[]) {
-  if (accounts.some((account) => account.recordId === currentAccountId)) {
-    return currentAccountId;
-  }
-  return accounts.length === 1 ? accounts[0].recordId : "";
-}
 
 export default function DailyPage() {
   const [data, setData] = useState<DailyData | null>(null);
@@ -97,11 +94,14 @@ export default function DailyPage() {
   }, []);
 
   const selectedAccount = useMemo(
-    () =>
-      data?.accounts.find((account) => account.recordId === form.selectedAccountId),
+    () => findSelectedAccount(data?.accounts ?? [], form.selectedAccountId),
     [data?.accounts, form.selectedAccountId]
   );
-  const isProduction = form.dailyType === "生产日报";
+  const selectedStartCredits = selectedAccountStartCredits(
+    data?.accounts ?? [],
+    form.selectedAccountId
+  );
+  const isProduction = isProductionDaily(form.dailyType);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -123,27 +123,7 @@ export default function DailyPage() {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        date: selectedDate,
-        reportType: form.dailyType,
-        dateMode: form.dateMode,
-        dailyType: form.dailyType,
-        accountRecordId: isProduction ? form.selectedAccountId : "",
-        isAccountChanged: form.changedAccount,
-        changedAccount: form.changedAccount,
-        remainingCredits: Number(form.remainingCredits),
-        assetCount: Number(form.assetCount),
-        videoDurationSeconds: Number(form.roughCutSeconds),
-        roughCutSeconds: Number(form.roughCutSeconds),
-        hasGenerationIssue: form.hasIssue,
-        hasIssue: form.hasIssue,
-        issueDescription: form.issueNote,
-        issueNote: form.issueNote,
-        workNote: form.nonProductionNote,
-        note: form.nonProductionNote,
-        summary: form.nonProductionNote,
-        nonProductionNote: form.nonProductionNote
-      })
+      body: JSON.stringify(buildDailySubmitPayload(form, selectedDate))
     });
     const payload = await readResponsePayload(response);
     setSaving(false);
@@ -227,30 +207,31 @@ export default function DailyPage() {
                   <label>账号</label>
                   {data.accounts.length ? (
                     <>
+                      {/* 注意：select.value / option.value 必须使用飞书账号表 recordId。展示文案不能作为 value，否则浏览器会出现“请在列表中选择一项”的原生校验错误。 */}
                       <select
                         value={form.selectedAccountId}
-                        required
+                        required={isProduction}
                         onChange={(event) =>
                           setForm({
                             ...form,
-                            selectedAccountId: event.target.value
+                            selectedAccountId: selectedAccountIdFromSelectValue(
+                              event.target.value
+                            )
                           })
                         }
                       >
-                        {data.accounts.length > 1 ? (
-                          <option value="">请选择账号</option>
-                        ) : null}
+                        <option value="">请选择账号</option>
                         {data.accounts.map((account) => (
-                          <option key={account.recordId} value={account.recordId}>
-                            {account.platform} · {account.accountName} ·{" "}
-                            {account.accountType}
+                          <option
+                            key={account.recordId}
+                            value={accountSelectOptionValue(account)}
+                          >
+                            {accountSelectOptionLabel(account)}
                           </option>
                         ))}
                       </select>
-                      {selectedAccount ? (
-                        <span className="subtle">
-                          起始积分 {selectedAccount.startCredits}
-                        </span>
+                      {selectedStartCredits !== undefined ? (
+                        <span className="subtle">起始积分 {selectedStartCredits}</span>
                       ) : null}
                     </>
                   ) : (
@@ -311,27 +292,46 @@ export default function DailyPage() {
                   />
                 </div>
 
-                <label className="row">
-                  <input
-                    type="checkbox"
-                    checked={form.hasIssue}
-                    onChange={(event) =>
-                      setForm({ ...form, hasIssue: event.target.checked })
-                    }
-                    style={{ width: 18 }}
-                  />
-                  是否存在生成问题
-                </label>
-
                 <div className="field">
-                  <label>生成问题说明</label>
-                  <textarea
-                    value={form.issueNote}
-                    onChange={(event) =>
-                      setForm({ ...form, issueNote: event.target.value })
-                    }
-                  />
+                  <label>是否存在生成问题</label>
+                  <div className="row" role="radiogroup" aria-label="是否存在生成问题">
+                    <label className="row">
+                      <input
+                        type="radio"
+                        name="hasIssue"
+                        checked={!form.hasIssue}
+                        onChange={() =>
+                          setForm({ ...form, hasIssue: false, issueNote: "" })
+                        }
+                        style={{ width: 18 }}
+                      />
+                      否
+                    </label>
+                    <label className="row">
+                      <input
+                        type="radio"
+                        name="hasIssue"
+                        checked={form.hasIssue}
+                        onChange={() => setForm({ ...form, hasIssue: true })}
+                        style={{ width: 18 }}
+                      />
+                      是
+                    </label>
+                  </div>
                 </div>
+
+                {form.hasIssue ? (
+                  <div className="field">
+                    <label>生成问题说明</label>
+                    <textarea
+                      required
+                      value={form.issueNote}
+                      onChange={(event) =>
+                        setForm({ ...form, issueNote: event.target.value })
+                      }
+                    />
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="field">
@@ -348,7 +348,7 @@ export default function DailyPage() {
 
             <button
               className="primary"
-              disabled={saving || (isProduction && !selectedAccount)}
+              disabled={saving || !canSubmitDailyForm(form, data.accounts)}
             >
               {saving ? "提交中..." : "提交日报"}
             </button>
