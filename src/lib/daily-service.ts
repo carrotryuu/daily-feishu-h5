@@ -24,7 +24,8 @@ import type { Account, BitableRecord, CurrentUser, DailyRecord } from "./types";
 export type DailySubmitInput = {
   dateMode: "today" | "yesterday";
   dailyType?: DailyType;
-  accountName: string;
+  accountRecordId?: string;
+  accountName?: string;
   changedAccount: boolean;
   remainingCredits: number;
   assetCount: number;
@@ -46,7 +47,10 @@ export async function getDailyPageData(user: CurrentUser) {
     user: user.person,
     today: today(),
     yesterday: yesterday(),
-    accounts: usableAccounts.map((record) => record.fields),
+    accounts: usableAccounts.map((record) => ({
+      ...record.fields,
+      recordId: record.recordId
+    })),
     recentDaily: daily
       .filter((record) => record.fields.userId === user.person.userId)
       .sort((a, b) => sortDateAsc(b.fields.date, a.fields.date))
@@ -115,9 +119,12 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
     };
   }
 
-  const account = usableAccounts.find(
-    (record) => record.fields.accountName === input.accountName
-  )?.fields;
+  const accountRecord = usableAccounts.find((record) =>
+    input.accountRecordId
+      ? record.recordId === input.accountRecordId
+      : record.fields.accountName === input.accountName
+  );
+  const account = accountRecord?.fields;
 
   if (!account) {
     throw new Response("账号不可用或不属于当前动画师", { status: 400 });

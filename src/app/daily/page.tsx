@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Account = {
+  recordId: string;
   accountName: string;
   platform: string;
   accountType: string;
@@ -36,6 +37,13 @@ type DailyData = {
   recentDaily: DailyRow[];
 };
 
+function resolveSelectedAccountId(currentAccountId: string, accounts: Account[]) {
+  if (accounts.some((account) => account.recordId === currentAccountId)) {
+    return currentAccountId;
+  }
+  return accounts.length === 1 ? accounts[0].recordId : "";
+}
+
 export default function DailyPage() {
   const [data, setData] = useState<DailyData | null>(null);
   const [error, setError] = useState("");
@@ -45,7 +53,7 @@ export default function DailyPage() {
   const [form, setForm] = useState({
     dateMode: "today",
     dailyType: "生产日报",
-    accountName: "",
+    selectedAccountId: "",
     changedAccount: false,
     remainingCredits: "",
     assetCount: "",
@@ -76,7 +84,10 @@ export default function DailyPage() {
     setData({ ...payload, user: mePayload.user });
     setForm((current) => ({
       ...current,
-      accountName: current.accountName || payload.accounts[0]?.accountName || ""
+      selectedAccountId: resolveSelectedAccountId(
+        current.selectedAccountId,
+        payload.accounts ?? []
+      )
     }));
     setLoading(false);
   }
@@ -87,13 +98,22 @@ export default function DailyPage() {
 
   const selectedAccount = useMemo(
     () =>
-      data?.accounts.find((account) => account.accountName === form.accountName),
-    [data?.accounts, form.accountName]
+      data?.accounts.find((account) => account.recordId === form.selectedAccountId),
+    [data?.accounts, form.selectedAccountId]
   );
   const isProduction = form.dailyType === "生产日报";
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (isProduction && !selectedAccount) {
+      setError(
+        data?.accounts.length
+          ? "请选择可用账号"
+          : "当前小组暂无可用账号，请联系导演维护账号。"
+      );
+      return;
+    }
+
     setSaving(true);
     setMessage("");
     setError("");
@@ -104,7 +124,7 @@ export default function DailyPage() {
       body: JSON.stringify({
         dateMode: form.dateMode,
         dailyType: form.dailyType,
-        accountName: form.accountName,
+        accountRecordId: isProduction ? form.selectedAccountId : "",
         changedAccount: form.changedAccount,
         remainingCredits: Number(form.remainingCredits),
         assetCount: Number(form.assetCount),
@@ -190,25 +210,39 @@ export default function DailyPage() {
               <>
                 <div className="field">
                   <label>账号</label>
-                  <select
-                    value={form.accountName}
-                    required
-                    onChange={(event) =>
-                      setForm({ ...form, accountName: event.target.value })
-                    }
-                  >
-                    {data.accounts.map((account) => (
-                      <option key={account.accountName} value={account.accountName}>
-                        {account.accountName} · {account.platform} ·{" "}
-                        {account.accountType}
-                      </option>
-                    ))}
-                  </select>
-                  {selectedAccount ? (
-                    <span className="subtle">
-                      起始积分 {selectedAccount.startCredits}
-                    </span>
-                  ) : null}
+                  {data.accounts.length ? (
+                    <>
+                      <select
+                        value={form.selectedAccountId}
+                        required
+                        onChange={(event) =>
+                          setForm({
+                            ...form,
+                            selectedAccountId: event.target.value
+                          })
+                        }
+                      >
+                        {data.accounts.length > 1 ? (
+                          <option value="">请选择账号</option>
+                        ) : null}
+                        {data.accounts.map((account) => (
+                          <option key={account.recordId} value={account.recordId}>
+                            {account.platform} · {account.accountName} ·{" "}
+                            {account.accountType}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedAccount ? (
+                        <span className="subtle">
+                          起始积分 {selectedAccount.startCredits}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="notice error">
+                      当前小组暂无可用账号，请联系导演维护账号。
+                    </div>
+                  )}
                 </div>
 
                 <label className="row">
@@ -299,7 +333,7 @@ export default function DailyPage() {
 
             <button
               className="primary"
-              disabled={saving || (isProduction && !data.accounts.length)}
+              disabled={saving || (isProduction && !selectedAccount)}
             >
               {saving ? "提交中..." : "提交日报"}
             </button>
