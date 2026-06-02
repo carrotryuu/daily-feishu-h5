@@ -126,6 +126,10 @@ export const TABLE_FIELDS = {
     animatorName: "绑定动画师",
     userId: "用户ID",
     startCredits: "账号起始积分",
+    currentRemainingCredits: "当前剩余积分",
+    lastUseDate: "最后使用日期",
+    lastUser: "最后使用人",
+    lastDailyId: "最后日报ID",
     remark: "备注"
   },
   daily: {

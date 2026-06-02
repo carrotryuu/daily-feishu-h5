@@ -52,6 +52,23 @@ test("shared enabled account in same group is visible on daily page", () => {
   );
 });
 
+test("shared account remains visible when last user is someone else", () => {
+  const visible = filterDailyAccountsForUser(currentUser, [
+    account("rec_shared_last_user", {
+      accountName: "共用账号",
+      accountType: ACCOUNT_TYPES.shared,
+      group: "A组",
+      lastUser: "李四",
+      lastDailyId: "rec_other_daily"
+    })
+  ]);
+
+  assert.deepEqual(
+    visible.map((record) => record.recordId),
+    ["rec_shared_last_user"]
+  );
+});
+
 test("personal account bound to current userId is visible", () => {
   const visible = filterDailyAccountsForUser(currentUser, [
     account("rec_personal_user", {

@@ -178,6 +178,15 @@ export function mapAccount(fields: RawFields): Account {
       "初始积分",
       "startCredits"
     ]),
+    currentRemainingCredits: optionalNumber(
+      fields[f.currentRemainingCredits] ??
+        fields["剩余积分"] ??
+        fields["今日剩余积分"] ??
+        fields["最近剩余积分"]
+    ),
+    lastUseDate: date(fields[f.lastUseDate]),
+    lastUser: text(fields[f.lastUser]),
+    lastDailyId: text(fields[f.lastDailyId]),
     remark: text(fields[f.remark])
   };
 }
@@ -341,6 +350,12 @@ export function toAccountFields(record: Partial<Account>): RawFields {
     ...(record.startCredits !== undefined
       ? { [f.startCredits]: record.startCredits }
       : {}),
+    ...(record.currentRemainingCredits !== undefined
+      ? { [f.currentRemainingCredits]: record.currentRemainingCredits }
+      : {}),
+    ...(record.lastUseDate !== undefined ? { [f.lastUseDate]: record.lastUseDate } : {}),
+    ...(record.lastUser !== undefined ? { [f.lastUser]: record.lastUser } : {}),
+    ...(record.lastDailyId !== undefined ? { [f.lastDailyId]: record.lastDailyId } : {}),
     ...(record.remark !== undefined ? { [f.remark]: record.remark } : {})
   };
 }

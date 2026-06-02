@@ -1,44 +1,106 @@
 import {
+  DAILY_STATUS,
   PUSH_TYPES,
   ROLES,
-  TABLE_FIELDS
+  TABLE_FIELDS,
+  isEnabledValue,
+  normalizeRole
 } from "./constants";
 import { createRecord } from "./bitable";
 import { getEnv } from "./env";
 import { FeishuApiError, sendBotMessage } from "./feishu";
 import { formatDate, nowIso, today } from "./dates";
 import {
-  activeAnimators,
-  activeDirectors,
+  getDailyRecords,
   getPeople,
   getPushLogRecords,
+  normalizeFieldText,
+  normalizeGroupName,
   toPushLogFields
 } from "./records";
-import type { Person, PushLogRecord } from "./types";
+import type { BitableRecord, DailyRecord, Person, PushLogRecord } from "./types";
 
-export async function runDailyPush() {
-  const [people, logs] = await Promise.all([getPeople(), getPushLogRecords()]);
-  const date = today();
-  const targets = [
-    ...activeAnimators(people).map((record) => ({
-      person: record.fields,
-      type: PUSH_TYPES.daily,
-      text: `请及时填写今日或昨日日报：${getEnv().appUrl}/daily`
-    })),
-    ...activeDirectors(people).map((record) => ({
-      person: record.fields,
-      type: PUSH_TYPES.review,
-      text: [
-        "请及时审核本组待审核日报。",
-        `${getEnv().appUrl}/review`,
-        `${getEnv().appUrl}/account`,
-        `${getEnv().appUrl}/ranking`
-      ].join("\n")
-    }))
+export type PushSkipReason =
+  | "already_submitted_today"
+  | "no_pending_review"
+  | "disabled_user"
+  | "missing_user_id"
+  | "unsupported_role"
+  | "today_not_workday"
+  | "duplicate_push_today";
+
+export type RunDailyPushOptions = {
+  force?: boolean;
+  date?: string;
+};
+
+type PushTarget = {
+  person: Person;
+  type: PushLogRecord["type"];
+  text: string;
+};
+
+type PushSkippedResult = {
+  userId: string;
+  name: string;
+  role: string;
+  group: string;
+  type: string;
+  skipped: true;
+  skipReason: PushSkipReason;
+};
+
+export async function runDailyPush(options: RunDailyPushOptions = {}) {
+  const [people, logs, daily] = await Promise.all([
+    getPeople(),
+    getPushLogRecords(),
+    getDailyRecords()
+  ]);
+  const date = options.date || today();
+  const plan = buildPushPlan({
+    people: people.map((record) => record.fields),
+    logs,
+    daily,
+    date,
+    force: Boolean(options.force)
+  });
+
+  for (const skipped of plan.skipped) {
+    console.info("[Push target skipped]", skipped);
+  }
+
+  const results: Array<PushSkippedResult | Awaited<ReturnType<typeof pushOne>>> = [
+    ...plan.skipped
   ];
+  for (const target of plan.targets) {
+    const result = await pushOne(target.person, target.type, target.text, date);
+    console.info("[Push message send result]", {
+      userId: result.userId,
+      name: result.name,
+      type: result.type,
+      receiveIdType: result.receiveIdType,
+      success: result.status === "成功",
+      failedReason: result.failedReason || null
+    });
+    results.push(result);
+  }
 
+  return {
+    date,
+    total: results.length,
+    results
+  };
+}
+
+export function buildPushPlan(input: {
+  people: Person[];
+  logs: BitableRecord<Record<string, unknown>>[];
+  daily: BitableRecord<DailyRecord>[];
+  date: string;
+  force?: boolean;
+}) {
   const existingKeys = new Set(
-    logs.map((record) => {
+    input.logs.map((record) => {
       const fields = record.fields;
       return [
         logDate(fields[TABLE_FIELDS.pushLogs.date]),
@@ -47,27 +109,121 @@ export async function runDailyPush() {
       ].join("|");
     })
   );
+  const targets: PushTarget[] = [];
+  const skipped: PushSkippedResult[] = [];
 
-  const results = [];
-  for (const target of targets) {
-    const key = [date, target.person.userId, target.type].join("|");
-    if (existingKeys.has(key)) {
-      results.push({
-        userId: target.person.userId,
-        type: target.type,
-        skipped: true
-      });
+  for (const person of input.people) {
+    const targetType = pushTypeForPerson(person);
+    const skipReason = resolveSkipReason({
+      person,
+      type: targetType,
+      daily: input.daily,
+      date: input.date,
+      existingKeys,
+      force: Boolean(input.force)
+    });
+
+    if (skipReason || !targetType) {
+      const skippedResult = skippedResultFor(person, targetType || "", skipReason || "unsupported_role");
+      skipped.push(skippedResult);
       continue;
     }
 
-    const result = await pushOne(target.person, target.type, target.text, date);
-    results.push(result);
+    targets.push({
+      person,
+      type: targetType,
+      text: pushText(targetType)
+    });
   }
 
+  return { targets, skipped };
+}
+
+function resolveSkipReason(input: {
+  person: Person;
+  type: PushLogRecord["type"] | undefined;
+  daily: BitableRecord<DailyRecord>[];
+  date: string;
+  existingKeys: Set<string>;
+  force: boolean;
+}): PushSkipReason | undefined {
+  if (!isWorkday(input.date)) return "today_not_workday";
+  if (!isEnabledValue(input.person.enabled)) return "disabled_user";
+  if (!input.person.userId) return "missing_user_id";
+  if (!input.type) return "unsupported_role";
+
+  if (input.type === PUSH_TYPES.daily && hasSubmittedToday(input.person, input.daily, input.date)) {
+    return "already_submitted_today";
+  }
+
+  if (input.type === PUSH_TYPES.review && !hasPendingReview(input.person, input.daily)) {
+    return "no_pending_review";
+  }
+
+  const key = [input.date, input.person.userId, input.type].join("|");
+  if (!input.force && input.existingKeys.has(key)) {
+    return "duplicate_push_today";
+  }
+
+  return undefined;
+}
+
+function pushTypeForPerson(person: Person) {
+  const role = normalizeRole(String(person.role));
+  if (role === ROLES.animator) return PUSH_TYPES.daily;
+  if (role === ROLES.director || role === ROLES.manager) return PUSH_TYPES.review;
+  return undefined;
+}
+
+function pushText(type: PushLogRecord["type"]) {
+  if (type === PUSH_TYPES.daily) {
+    return `请及时填写今日或昨日日报：${getEnv().appUrl}/daily`;
+  }
+
+  return [
+    "请及时审核待审核日报。",
+    `${getEnv().appUrl}/review`,
+    `${getEnv().appUrl}/account`,
+    `${getEnv().appUrl}/ranking`
+  ].join("\n");
+}
+
+function hasSubmittedToday(
+  person: Person,
+  daily: BitableRecord<DailyRecord>[],
+  date: string
+) {
+  return daily.some(
+    (record) => record.fields.userId === person.userId && record.fields.date === date
+  );
+}
+
+function hasPendingReview(person: Person, daily: BitableRecord<DailyRecord>[]) {
+  const role = normalizeRole(String(person.role));
+  const directorGroup = normalizeGroupName(person.group);
+
+  return daily.some((record) => {
+    if (normalizeFieldText(record.fields.status) !== DAILY_STATUS.pending) {
+      return false;
+    }
+    if (role === ROLES.manager) return true;
+    return normalizeGroupName(record.fields.group) === directorGroup;
+  });
+}
+
+function skippedResultFor(
+  person: Person,
+  type: string,
+  skipReason: PushSkipReason
+): PushSkippedResult {
   return {
-    date,
-    total: targets.length,
-    results
+    userId: person.userId,
+    name: person.name,
+    role: person.role,
+    group: person.group,
+    type,
+    skipped: true,
+    skipReason
   };
 }
 
@@ -109,11 +265,12 @@ export async function pushOne(
     );
     return {
       userId: person.userId,
+      name: person.name,
       type,
-      status: "失败",
+      status: "失败" as const,
+      failedReason,
       receiveIdType,
-      receiveId,
-      failedReason
+      receiveId
     };
   }
 
@@ -132,24 +289,27 @@ export async function pushOne(
     );
     return {
       userId: person.userId,
+      name: person.name,
       type,
-      status: "成功",
+      status: "成功" as const,
       receiveIdType,
       receiveId
     };
   } catch (error) {
     const feishuCode = error instanceof FeishuApiError ? error.feishuCode : undefined;
     const feishuMsg = error instanceof FeishuApiError ? error.feishuMsg : undefined;
+    const failedReason = error instanceof Error ? error.message : "未知错误";
     console.warn("[Push failed]", {
       receiveIdType,
       receiveId,
       userId: person.userId,
       name: person.name,
       type,
+      success: false,
+      failedReason,
       feishuCode,
       feishuMsg
     });
-    const failedReason = error instanceof Error ? error.message : "未知错误";
     await createRecord(
       "pushLogs",
       toPushLogFields({
@@ -160,17 +320,28 @@ export async function pushOne(
     );
     return {
       userId: person.userId,
+      name: person.name,
       type,
-      status: "失败",
+      status: "失败" as const,
+      failedReason,
       receiveIdType,
-      receiveId,
-      failedReason
+      receiveId
     };
   }
 }
 
 export function isPushRole(role: string) {
-  return role === ROLES.animator || role === ROLES.director;
+  const normalized = normalizeRole(role);
+  return (
+    normalized === ROLES.animator ||
+    normalized === ROLES.director ||
+    normalized === ROLES.manager
+  );
+}
+
+function isWorkday(date: string) {
+  const day = new Date(`${date}T00:00:00+08:00`).getDay();
+  return day >= 1 && day <= 6;
 }
 
 function logDate(value: unknown) {

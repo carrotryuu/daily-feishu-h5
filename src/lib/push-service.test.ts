@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { TABLE_FIELDS, PUSH_TYPES, ROLES, YES_NO } from "./constants";
+import {
+  DAILY_STATUS,
+  DAILY_TYPES,
+  PUSH_TYPES,
+  ROLES,
+  TABLE_FIELDS,
+  YES_NO
+} from "./constants";
 import { resetBitableCachesForTest } from "./bitable";
 import { sendBotMessage } from "./feishu";
-import { pushOne } from "./push-service";
-import type { Person } from "./types";
+import { buildPushPlan, pushOne } from "./push-service";
+import type { BitableRecord, DailyRecord, Person } from "./types";
 
 test("sendBotMessage sends by Feishu user_id", async (t) => {
   const mock = installPushFetchMock(t);
@@ -19,19 +26,88 @@ test("sendBotMessage sends by Feishu user_id", async (t) => {
 
 test("missing userId does not call Feishu message API and records failure", async (t) => {
   const mock = installPushFetchMock(t);
-  const person: Person = {
-    userId: "",
-    name: "Animator",
-    role: ROLES.animator,
-    group: "A",
-    enabled: YES_NO.yes
-  };
-
-  const result = await pushOne(person, PUSH_TYPES.daily, "hello", "2026-06-02");
+  const result = await pushOne(
+    person({ userId: "", role: ROLES.animator }),
+    PUSH_TYPES.daily,
+    "hello",
+    "2026-06-02"
+  );
 
   assert.equal(mock.messageUrls.length, 0);
   assert.equal(mock.recordsWrites.length, 1);
   assert.equal(result.failedReason, "缺少用户ID");
+});
+
+test("submitted animator is skipped with already_submitted_today", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "animator_1", role: ROLES.animator })],
+    logs: [],
+    daily: [daily("daily_1", { userId: "animator_1", date: "2026-06-02" })],
+    date: "2026-06-02"
+  });
+
+  assert.equal(plan.skipped[0].skipped, true);
+  assert.equal(plan.skipped[0].skipReason, "already_submitted_today");
+});
+
+test("director without pending review is skipped with no_pending_review", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "director_1", role: ROLES.director, group: "A" })],
+    logs: [],
+    daily: [],
+    date: "2026-06-02"
+  });
+
+  assert.equal(plan.skipped[0].skipReason, "no_pending_review");
+});
+
+test("duplicate push is skipped with duplicate_push_today", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "animator_1", role: ROLES.animator })],
+    logs: [pushLog("animator_1", PUSH_TYPES.daily, "2026-06-02")],
+    daily: [],
+    date: "2026-06-02"
+  });
+
+  assert.equal(plan.skipped[0].skipReason, "duplicate_push_today");
+});
+
+test("force push ignores duplicate_push_today", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "animator_1", role: ROLES.animator })],
+    logs: [pushLog("animator_1", PUSH_TYPES.daily, "2026-06-02")],
+    daily: [],
+    date: "2026-06-02",
+    force: true
+  });
+
+  assert.equal(plan.skipped.length, 0);
+  assert.equal(plan.targets.length, 1);
+});
+
+test("missing userId is skipped with missing_user_id", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "", role: ROLES.animator })],
+    logs: [],
+    daily: [],
+    date: "2026-06-02"
+  });
+
+  assert.equal(plan.skipped[0].skipReason, "missing_user_id");
+});
+
+test("successful push result includes receiveIdType user_id", async (t) => {
+  installPushFetchMock(t);
+  const result = await pushOne(
+    person({ userId: "g42g6447", role: ROLES.animator }),
+    PUSH_TYPES.daily,
+    "hello",
+    "2026-06-02"
+  );
+
+  assert.equal(result.status, "成功");
+  assert.equal(result.receiveIdType, "user_id");
+  assert.equal(result.receiveId, "g42g6447");
 });
 
 function installPushFetchMock(t: TestContext) {
@@ -99,4 +175,64 @@ function installPushFetchMock(t: TestContext) {
   });
 
   return { messageUrls, messageBodies, recordsWrites };
+}
+
+function person(overrides: Partial<Person> = {}): Person {
+  return {
+    userId: "user_1",
+    name: "User",
+    role: ROLES.animator,
+    group: "A",
+    enabled: YES_NO.yes,
+    ...overrides
+  };
+}
+
+function daily(
+  recordId: string,
+  overrides: Partial<DailyRecord> = {}
+): BitableRecord<DailyRecord> {
+  return {
+    recordId,
+    fields: {
+      dailyType: DAILY_TYPES.production,
+      date: "2026-06-02",
+      userId: "animator_1",
+      name: "Animator",
+      group: "A",
+      changedAccount: YES_NO.no,
+      account: "Account",
+      platform: "LIBTV",
+      accountType: "",
+      previousCredits: 0,
+      newAccountStartCredits: 0,
+      remainingCredits: 0,
+      consumedCredits: 0,
+      assetCount: 0,
+      roughCutSeconds: 0,
+      hasIssue: YES_NO.no,
+      issueNote: "",
+      nonProductionNote: "",
+      status: DAILY_STATUS.pending,
+      includeRanking: YES_NO.no,
+      month: "2026-06",
+      submittedAt: "2026-06-02T10:00:00.000Z",
+      ...overrides
+    }
+  };
+}
+
+function pushLog(
+  userId: string,
+  type: string,
+  date: string
+): BitableRecord<Record<string, unknown>> {
+  return {
+    recordId: `log_${userId}`,
+    fields: {
+      [TABLE_FIELDS.pushLogs.date]: date,
+      [TABLE_FIELDS.pushLogs.userId]: userId,
+      [TABLE_FIELDS.pushLogs.type]: type
+    }
+  };
 }

@@ -33,6 +33,10 @@ export type Account = {
   animatorName?: string;
   userId?: string;
   startCredits: number;
+  currentRemainingCredits?: number;
+  lastUseDate?: string;
+  lastUser?: string;
+  lastDailyId?: string;
   remark?: string;
 };
 

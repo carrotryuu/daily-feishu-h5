@@ -9,9 +9,17 @@ import {
 } from "./constants";
 import {
   buildDailyAccountsDiagnostics,
-  filterDailyAccountsForUser
+  filterDailyAccountsForUser,
+  isPersonalAccount,
+  isSharedAccount
 } from "./account-visibility";
-import { BitableError, createRecord, tableHasField } from "./bitable";
+import {
+  BitableError,
+  createRecord,
+  invalidateRecordsCache,
+  tableHasField,
+  updateRecord
+} from "./bitable";
 import {
   calculateConsumedCredits,
   defaultDailyDecision
@@ -20,7 +28,8 @@ import { monthOf, nowIso, sortDateAsc, today, yesterday } from "./dates";
 import {
   getAccounts,
   getDailyRecords,
-  toDailyFields
+  toDailyFields,
+  type RawFields
 } from "./records";
 import type {
   Account,
@@ -30,6 +39,18 @@ import type {
 } from "./types";
 
 const DAILY_SUBMIT_ROLES: Role[] = [ROLES.animator];
+
+type AccountSyncResult =
+  | { status: "success"; syncedCurrentRemainingCredits: number }
+  | { status: "skipped"; reason: string; missingFields?: string[] }
+  | { status: "failed"; reason: string; error: string };
+
+const ACCOUNT_REMAINING_CREDIT_FIELD_CANDIDATES = [
+  TABLE_FIELDS.accounts.currentRemainingCredits,
+  "剩余积分",
+  "今日剩余积分",
+  "最近剩余积分"
+];
 
 export type DailySubmitInput = {
   date?: string;
@@ -144,7 +165,11 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
     const created = await createDailyRecord(record);
     return {
       recordId: created.recordId,
-      daily: record
+      daily: record,
+      accountSync: {
+        status: "skipped",
+        reason: "non_production_daily"
+      } satisfies AccountSyncResult
     };
   }
 
@@ -213,9 +238,31 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
   });
 
   const created = await createDailyRecord(record);
+  const accountSync = await syncAccountAfterDailySubmit({
+    user,
+    account,
+    accountRecordId: accountRecord.recordId,
+    accountName: account.accountName,
+    accountType: account.accountType,
+    dailyRecordId: created.recordId,
+    remainingCredits: input.remainingCredits,
+    date,
+    sameDayDaily: [
+      ...daily,
+      {
+        recordId: created.recordId,
+        fields: record
+      }
+    ]
+  });
+
   return {
     recordId: created.recordId,
-    daily: record
+    daily: record,
+    accountSync,
+    ...(accountSync.status === "failed" || accountSync.status === "skipped"
+      ? { warning: accountSync }
+      : {})
   };
 }
 
@@ -406,6 +453,205 @@ async function createDailyRecord(record: DailyRecord) {
   }
 }
 
+async function syncAccountAfterDailySubmit(input: {
+  user: CurrentUser;
+  account: Account;
+  accountRecordId: string;
+  accountName: string;
+  accountType: Account["accountType"];
+  dailyRecordId: string;
+  remainingCredits: number;
+  date: string;
+  sameDayDaily: BitableRecord<DailyRecord>[];
+}): Promise<AccountSyncResult> {
+  const fieldMap = await resolveAccountSyncFields();
+  const missingFields = accountSyncMissingFields(fieldMap);
+  const syncedCurrentRemainingCredits = resolveSyncedCurrentRemainingCredits(input);
+
+  if (missingFields.length > 0) {
+    const result: AccountSyncResult = {
+      status: "skipped",
+      reason: "缺少平台账号表字段",
+      missingFields
+    };
+    logAccountSync({
+      ...input,
+      syncedCurrentRemainingCredits,
+      status: result.status,
+      reason: "ACCOUNT_SYNC_SKIPPED",
+      missingFields
+    });
+    await invalidateRecordsCache("accounts");
+    return result;
+  }
+
+  const fields: RawFields = {
+    [fieldMap.currentRemainingCredits!]: syncedCurrentRemainingCredits,
+    [fieldMap.lastUseDate!]: dateToMs(input.date),
+    [fieldMap.lastUser!]: input.user.person.name,
+    [fieldMap.lastDailyId!]: input.dailyRecordId
+  };
+
+  try {
+    await updateRecord<RawFields>("accounts", input.accountRecordId, fields);
+    const result: AccountSyncResult = {
+      status: "success",
+      syncedCurrentRemainingCredits
+    };
+    logAccountSync({
+      ...input,
+      syncedCurrentRemainingCredits,
+      status: result.status
+    });
+    return result;
+  } catch (error) {
+    const result: AccountSyncResult = {
+      status: "failed",
+      reason: "ACCOUNT_SYNC_FAILED",
+      error: accountSyncErrorMessage(error)
+    };
+    logAccountSync({
+      ...input,
+      syncedCurrentRemainingCredits,
+      status: result.status,
+      reason: result.reason
+    });
+    console.error("[ACCOUNT_SYNC_FAILED]", {
+      accountRecordId: input.accountRecordId,
+      dailyRecordId: input.dailyRecordId,
+      error: result.error
+    });
+    await invalidateRecordsCache("accounts");
+    return result;
+  }
+}
+
+async function resolveAccountSyncFields() {
+  const currentRemainingCredits = await firstExistingAccountField(
+    ACCOUNT_REMAINING_CREDIT_FIELD_CANDIDATES
+  );
+
+  return {
+    currentRemainingCredits,
+    lastUseDate: (await tableHasField(
+      "accounts",
+      TABLE_FIELDS.accounts.lastUseDate
+    ))
+      ? TABLE_FIELDS.accounts.lastUseDate
+      : undefined,
+    lastUser: (await tableHasField("accounts", TABLE_FIELDS.accounts.lastUser))
+      ? TABLE_FIELDS.accounts.lastUser
+      : undefined,
+    lastDailyId: (await tableHasField(
+      "accounts",
+      TABLE_FIELDS.accounts.lastDailyId
+    ))
+      ? TABLE_FIELDS.accounts.lastDailyId
+      : undefined
+  };
+}
+
+async function firstExistingAccountField(candidates: string[]) {
+  for (const fieldName of candidates) {
+    if (await tableHasField("accounts", fieldName)) return fieldName;
+  }
+  return undefined;
+}
+
+function accountSyncMissingFields(fieldMap: {
+  currentRemainingCredits?: string;
+  lastUseDate?: string;
+  lastUser?: string;
+  lastDailyId?: string;
+}) {
+  const missing: string[] = [];
+  if (!fieldMap.currentRemainingCredits) {
+    missing.push(TABLE_FIELDS.accounts.currentRemainingCredits);
+  }
+  if (!fieldMap.lastUseDate) missing.push(TABLE_FIELDS.accounts.lastUseDate);
+  if (!fieldMap.lastUser) missing.push(TABLE_FIELDS.accounts.lastUser);
+  if (!fieldMap.lastDailyId) missing.push(TABLE_FIELDS.accounts.lastDailyId);
+  return missing;
+}
+
+function accountSyncErrorMessage(error: unknown) {
+  if (error instanceof BitableError) {
+    return error.feishuMessage || error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function resolveSyncedCurrentRemainingCredits(input: {
+  account: Account;
+  accountRecordId: string;
+  accountName: string;
+  date: string;
+  remainingCredits: number;
+  sameDayDaily: BitableRecord<DailyRecord>[];
+}) {
+  if (!isSharedAccount(input.account)) return input.remainingCredits;
+
+  const sameDayRecords = input.sameDayDaily.filter((record) => {
+    if (record.fields.dailyType !== DAILY_TYPES.production) return false;
+    if (record.fields.date !== input.date) return false;
+    if (record.fields.accountRecordId) {
+      return record.fields.accountRecordId === input.accountRecordId;
+    }
+    return record.fields.account === input.accountName;
+  });
+  const remainingValues = sameDayRecords
+    .map((record) => record.fields.remainingCredits)
+    .filter((value) => Number.isFinite(value));
+  const minRemainingCredits = remainingValues.length
+    ? Math.min(...remainingValues)
+    : input.remainingCredits;
+
+  console.info("[Shared account daily min remaining resolved]", {
+    accountRecordId: input.accountRecordId,
+    accountName: input.accountName,
+    date: input.date,
+    sameDayRecordCount: sameDayRecords.length,
+    minRemainingCredits,
+    recordIds: sameDayRecords.map((record) => record.recordId)
+  });
+
+  return minRemainingCredits;
+}
+
+function dateToMs(value: string) {
+  return new Date(`${value}T00:00:00+08:00`).getTime();
+}
+
+function logAccountSync(input: {
+  accountRecordId: string;
+  accountName: string;
+  accountType: Account["accountType"];
+  dailyRecordId: string;
+  remainingCredits: number;
+  syncedCurrentRemainingCredits?: number;
+  date: string;
+  user: CurrentUser;
+  status: AccountSyncResult["status"];
+  reason?: string;
+  missingFields?: string[];
+}) {
+  console.info("[Account sync after daily submit]", {
+    accountRecordId: input.accountRecordId,
+    accountName: input.accountName,
+    accountType: input.accountType,
+    dailyRecordId: input.dailyRecordId,
+    remainingCredits: input.remainingCredits,
+    syncedCurrentRemainingCredits: input.syncedCurrentRemainingCredits,
+    date: input.date,
+    userId: input.user.person.userId,
+    name: input.user.person.name,
+    status: input.status,
+    reason: input.reason,
+    missingFields: input.missingFields
+  });
+}
+
 function resolveDailyType(value?: string): DailyType {
   const allowedTypes = Object.values(DAILY_TYPES) as string[];
   if (!value) return DAILY_TYPES.production;
@@ -419,6 +665,17 @@ export function findPreviousCredits(
   targetDate: string,
   accountRecordId?: string
 ) {
+  if (
+    (isPersonalAccount(account) || isSharedAccount(account)) &&
+    account.currentRemainingCredits !== undefined
+  ) {
+    return account.currentRemainingCredits;
+  }
+
+  if (isSharedAccount(account)) {
+    return account.startCredits;
+  }
+
   const candidates = daily.filter(
     (record) =>
       isEffectivePreviousDaily(record.fields) &&

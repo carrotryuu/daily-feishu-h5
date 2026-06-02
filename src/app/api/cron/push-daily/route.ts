@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     assertCron(request);
-    return jsonOk(await runDailyPush());
+    const url = new URL(request.url);
+    return jsonOk(await runDailyPush({ force: url.searchParams.get("force") === "1" }));
   } catch (error) {
     return jsonError(error);
   }
