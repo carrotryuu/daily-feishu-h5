@@ -62,6 +62,25 @@ export class FeishuOAuthError extends Error {
   }
 }
 
+export class FeishuApiError extends Error {
+  feishuCode?: number;
+  feishuMsg?: string;
+  path: string;
+
+  constructor(input: {
+    message: string;
+    feishuCode?: number;
+    feishuMsg?: string;
+    path: string;
+  }) {
+    super(input.message);
+    this.name = "FeishuApiError";
+    this.feishuCode = input.feishuCode;
+    this.feishuMsg = input.feishuMsg;
+    this.path = input.path;
+  }
+}
+
 export type WikiNode = {
   node_token: string;
   obj_token: string;
@@ -94,7 +113,12 @@ async function feishuFetch<T>(
   const payload = (await response.json()) as FeishuResponse<T>;
 
   if (!response.ok || payload.code !== 0) {
-    throw new Error(payload.msg || `飞书接口请求失败：${path}`);
+    throw new FeishuApiError({
+      message: payload.msg || `Feishu API request failed: ${path}`,
+      feishuCode: payload.code,
+      feishuMsg: payload.msg,
+      path
+    });
   }
 
   return payload.data;
@@ -201,15 +225,15 @@ export async function getWikiNodeInfo(wikiNodeToken: string) {
 }
 
 export async function sendBotMessage(input: {
-  openId: string;
+  userId: string;
   text: string;
 }) {
   return feishuFetch<{ message_id: string }>(
-    "/open-apis/im/v1/messages?receive_id_type=open_id",
+    "/open-apis/im/v1/messages?receive_id_type=user_id",
     {
       method: "POST",
       body: JSON.stringify({
-        receive_id: input.openId,
+        receive_id: input.userId,
         msg_type: "text",
         content: JSON.stringify({ text: input.text })
       })

@@ -5,7 +5,7 @@ import {
 } from "./constants";
 import { createRecord } from "./bitable";
 import { getEnv } from "./env";
-import { sendBotMessage } from "./feishu";
+import { FeishuApiError, sendBotMessage } from "./feishu";
 import { formatDate, nowIso, today } from "./dates";
 import {
   activeAnimators,
@@ -71,12 +71,14 @@ export async function runDailyPush() {
   };
 }
 
-async function pushOne(
+export async function pushOne(
   person: Person,
   type: PushLogRecord["type"],
   text: string,
   date: string
 ) {
+  const receiveIdType = "user_id" as const;
+  const receiveId = person.userId;
   const baseLog = {
     date,
     userId: person.userId,
@@ -87,14 +89,66 @@ async function pushOne(
     pushedAt: nowIso()
   };
 
+  if (!receiveId) {
+    const failedReason = "缺少用户ID";
+    console.warn("[Push failed]", {
+      receiveIdType,
+      receiveId,
+      userId: person.userId,
+      name: person.name,
+      type,
+      failedReason
+    });
+    await createRecord(
+      "pushLogs",
+      toPushLogFields({
+        ...baseLog,
+        status: "失败",
+        failedReason
+      })
+    );
+    return {
+      userId: person.userId,
+      type,
+      status: "失败",
+      receiveIdType,
+      receiveId,
+      failedReason
+    };
+  }
+
   try {
-    await sendBotMessage({ openId: person.userId, text });
+    await sendBotMessage({ userId: receiveId, text });
+    console.info("[Push success]", {
+      receiveIdType,
+      receiveId,
+      userId: person.userId,
+      name: person.name,
+      type
+    });
     await createRecord(
       "pushLogs",
       toPushLogFields({ ...baseLog, status: "成功" })
     );
-    return { userId: person.userId, type, status: "成功" };
+    return {
+      userId: person.userId,
+      type,
+      status: "成功",
+      receiveIdType,
+      receiveId
+    };
   } catch (error) {
+    const feishuCode = error instanceof FeishuApiError ? error.feishuCode : undefined;
+    const feishuMsg = error instanceof FeishuApiError ? error.feishuMsg : undefined;
+    console.warn("[Push failed]", {
+      receiveIdType,
+      receiveId,
+      userId: person.userId,
+      name: person.name,
+      type,
+      feishuCode,
+      feishuMsg
+    });
     const failedReason = error instanceof Error ? error.message : "未知错误";
     await createRecord(
       "pushLogs",
@@ -104,7 +158,14 @@ async function pushOne(
         failedReason
       })
     );
-    return { userId: person.userId, type, status: "失败", failedReason };
+    return {
+      userId: person.userId,
+      type,
+      status: "失败",
+      receiveIdType,
+      receiveId,
+      failedReason
+    };
   }
 }
 

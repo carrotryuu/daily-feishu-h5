@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import {
   createRecord,
+  expireRecordsCacheForTest,
+  getBitableCacheStatus,
   getFieldMetaCacheTtlMs,
   getRecordsCacheTtlMs,
   listRecords,
   resetBitableCachesForTest,
   updateRecord
 } from "./bitable";
+import { withApiPerf } from "./perf";
 
 test("fields metadata cache hit avoids repeated Feishu fields API requests", async (t) => {
   const mock = installBitableFetchMock(t);
@@ -27,6 +30,28 @@ test("records cache hit avoids repeated Feishu records API requests", async (t) 
   await listRecords("daily");
 
   assert.equal(mock.counts.records, 1);
+});
+
+test("second accounts read uses records cache and reports accounts hit", async (t) => {
+  const mock = installBitableFetchMock(t);
+
+  await listRecords("accounts");
+  const perf = await capturePerf(() => listRecords("accounts"));
+
+  assert.equal(mock.counts.records, 1);
+  assert.equal(perf.cache.accounts.hit, true);
+  assert.equal(perf.cache.accounts.cacheKey, "accounts");
+});
+
+test("second rankings read uses records cache and reports rankings hit", async (t) => {
+  const mock = installBitableFetchMock(t);
+
+  await listRecords("rankings");
+  const perf = await capturePerf(() => listRecords("rankings"));
+
+  assert.equal(mock.counts.records, 1);
+  assert.equal(perf.cache.rankings.hit, true);
+  assert.equal(perf.cache.rankings.cacheKey, "rankings");
 });
 
 test("createRecord clears the written table records cache", async (t) => {
@@ -62,6 +87,17 @@ test("updateRecord clears the written table records cache", async (t) => {
   assert.equal(mock.counts.records, 2);
 });
 
+test("updateRecord rankings clears rankings records cache", async (t) => {
+  const mock = installBitableFetchMock(t);
+
+  await listRecords("rankings");
+  await updateRecord("rankings", "rec_1", { rank: 2 });
+  await listRecords("rankings");
+
+  assert.equal(mock.counts.update, 1);
+  assert.equal(mock.counts.records, 2);
+});
+
 test("review writes can clear daily, reviews, and rankings records cache", async (t) => {
   const mock = installBitableFetchMock(t);
 
@@ -74,6 +110,34 @@ test("review writes can clear daily, reviews, and rankings records cache", async
   assert.equal(mock.counts.create, 1);
   assert.equal(mock.counts.update, 2);
   assert.equal(mock.counts.records, 6);
+});
+
+test("cache miss reason reports empty, expired, and invalidated", async (t) => {
+  installBitableFetchMock(t);
+
+  const empty = await capturePerf(() => listRecords("accounts"));
+  assert.equal(empty.cache.accounts.missReason, "empty");
+
+  expireRecordsCacheForTest("accounts");
+  const expired = await capturePerf(() => listRecords("accounts"));
+  assert.equal(expired.cache.accounts.missReason, "expired");
+
+  await updateRecord("accounts", "rec_1", { name: "updated" });
+  const invalidated = await capturePerf(() => listRecords("accounts"));
+  assert.equal(invalidated.cache.accounts.missReason, "invalidated");
+});
+
+test("cache status diagnostics do not expose cached business data", async (t) => {
+  installBitableFetchMock(t);
+
+  await listRecords("accounts");
+  const status = getBitableCacheStatus();
+  const serialized = JSON.stringify(status);
+
+  assert.equal(status.records.accounts.hasCache, true);
+  assert.equal(status.records.accounts.recordsCount, 1);
+  assert.equal(serialized.includes("opt_a"), false);
+  assert.equal(serialized.includes("rec_1"), false);
 });
 
 test("records cache TTLs match table freshness requirements", () => {
@@ -184,4 +248,36 @@ function installBitableFetchMock(t: TestContext) {
   });
 
   return { counts };
+}
+
+async function capturePerf(action: () => Promise<unknown>) {
+  const originalInfo = console.info;
+  const logs: unknown[][] = [];
+  console.info = (...args: unknown[]) => {
+    logs.push(args);
+  };
+
+  try {
+    await withApiPerf("/api/test", async () => {
+      await action();
+      return { ok: true };
+    });
+  } finally {
+    console.info = originalInfo;
+  }
+
+  return logs[0][1] as {
+    cache: {
+      accounts: {
+        hit: boolean;
+        cacheKey: string;
+        missReason: string | null;
+      };
+      rankings: {
+        hit: boolean;
+        cacheKey: string;
+        missReason: string | null;
+      };
+    };
+  };
 }

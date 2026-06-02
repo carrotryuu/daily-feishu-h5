@@ -19,8 +19,11 @@ test("performance log includes totalMs and recordsCount", async () => {
   const payload = logs[0][1] as {
     totalMs?: number;
     recordsCount?: { people?: number; daily?: number };
+    cache?: { accounts?: { hit?: boolean; missReason?: string | null } };
   };
   assert.equal(typeof payload.totalMs, "number");
   assert.equal(payload.recordsCount?.people, 0);
   assert.equal(payload.recordsCount?.daily, 0);
+  assert.equal(payload.cache?.accounts?.hit, false);
+  assert.equal(payload.cache?.accounts?.missReason, "disabled");
 });

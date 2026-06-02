@@ -1,6 +1,11 @@
 import { getEnv } from "./env";
 import { getTenantAccessToken, getWikiNodeInfo } from "./feishu";
-import { recordFieldsMetaPerf, recordTablePerf } from "./perf";
+import {
+  recordFieldsMetaPerf,
+  recordTablePerf,
+  type CacheMissReason,
+  type TableCachePerf
+} from "./perf";
 import type { BitableRecord } from "./types";
 
 export const TABLE_NAMES = {
@@ -109,14 +114,22 @@ const RECORD_CACHE_TTL_MS: Record<TableKey, number> = {
 
 let fieldMetaCache = new Map<
   string,
-  { expiresAt: number; meta: TableFieldMeta; table: TableKey }
+  { createdAt: number; expiresAt: number; meta: TableFieldMeta; table: TableKey }
 >();
 let recordCache = new Map<
-  string,
+  TableKey,
   {
+    createdAt: number;
     expiresAt: number;
     records: BitableRecord<unknown>[];
-    table?: TableKey;
+    cacheKey: TableKey;
+  }
+>();
+let recordCacheInvalidations = new Map<
+  TableKey,
+  {
+    lastInvalidatedAt: number;
+    invalidationReason: string;
   }
 >();
 let unresolvedOptionWarnings = new Set<string>();
@@ -273,6 +286,10 @@ function cacheKey(appToken: string, tableId: string) {
   return `${appToken}:${tableId}`;
 }
 
+function recordsCacheKey(table: TableKey) {
+  return table;
+}
+
 async function tablePath(tableIdOrKey: string) {
   const tableId = isTableKey(tableIdOrKey)
     ? await getTableId(tableIdOrKey)
@@ -333,6 +350,7 @@ async function getTableFieldMeta(table: TableKey): Promise<TableFieldMeta> {
 
   const meta = { fieldNames, optionNameByField };
   fieldMetaCache.set(key, {
+    createdAt: Date.now(),
     expiresAt: Date.now() + FIELD_META_TTL_MS,
     meta,
     table
@@ -462,16 +480,16 @@ export async function listRecords<T>(
   options: ListRecordsOptions = {}
 ): Promise<BitableRecord<T>[]> {
   const useCache = options.useCache !== false;
-  const target = await getTableTarget(tableIdOrKey);
-  const recordsCacheKey = cacheKey(target.appToken, target.tableId);
-  const cached = useCache ? recordCache.get(recordsCacheKey) : undefined;
-  if (cached && cached.expiresAt > Date.now()) {
+  const table = isTableKey(tableIdOrKey) ? tableIdOrKey : undefined;
+  const cacheInfo = getRecordsCacheInfo(table, useCache);
+  const cached = table && useCache ? recordCache.get(recordsCacheKey(table)) : undefined;
+  if (cached && cacheInfo.hit) {
     const records = cached.records as BitableRecord<T>[];
     recordTablePerf({
-      table: target.table,
+      table,
       ms: 0,
       records: records.length,
-      cacheHit: true
+      cache: cacheInfo
     });
     return records.map((record) => ({ ...record }));
   }
@@ -479,7 +497,6 @@ export async function listRecords<T>(
   const startedAt = performance.now();
   const records: BitableRecord<T>[] = [];
   let pageToken: string | undefined;
-  const table = target.table;
   const fieldMeta = table ? await getTableFieldMeta(table) : undefined;
 
   do {
@@ -502,29 +519,99 @@ export async function listRecords<T>(
   } while (pageToken);
 
   if (useCache && table) {
-    recordCache.set(recordsCacheKey, {
+    recordCache.set(recordsCacheKey(table), {
+      createdAt: Date.now(),
       expiresAt: Date.now() + RECORD_CACHE_TTL_MS[table],
       records: records as BitableRecord<unknown>[],
-      table
+      cacheKey: recordsCacheKey(table)
     });
+    recordCacheInvalidations.delete(table);
   }
   recordTablePerf({
     table,
     ms: performance.now() - startedAt,
     records: records.length,
-    cacheHit: false
+    cache: cacheInfo
   });
   return records;
+}
+
+function getRecordsCacheInfo(
+  table: TableKey | undefined,
+  useCache: boolean
+): TableCachePerf {
+  if (!table) {
+    return {
+      hit: false,
+      cacheKey: "",
+      ageMs: null,
+      ttlMs: 0,
+      missReason: "tableKeyMismatch"
+    };
+  }
+
+  const ttlMs = RECORD_CACHE_TTL_MS[table];
+  const key = recordsCacheKey(table);
+  if (!useCache) {
+    return {
+      hit: false,
+      cacheKey: key,
+      ageMs: null,
+      ttlMs,
+      missReason: "bypassed"
+    };
+  }
+
+  const cached = recordCache.get(key);
+  if (!cached) {
+    const invalidation = recordCacheInvalidations.get(table);
+    return {
+      hit: false,
+      cacheKey: key,
+      ageMs: null,
+      ttlMs,
+      missReason: invalidation ? "invalidated" : "empty"
+    };
+  }
+
+  const ageMs = Date.now() - cached.createdAt;
+  if (cached.expiresAt <= Date.now()) {
+    return {
+      hit: false,
+      cacheKey: key,
+      ageMs,
+      ttlMs,
+      missReason: "expired"
+    };
+  }
+
+  return {
+    hit: true,
+    cacheKey: key,
+    ageMs,
+    ttlMs,
+    missReason: null
+  };
 }
 
 export async function invalidateRecordsCache(table?: TableKey) {
   if (!table) {
     recordCache.clear();
+    const now = Date.now();
+    for (const key of Object.keys(TABLE_NAMES) as TableKey[]) {
+      recordCacheInvalidations.set(key, {
+        lastInvalidatedAt: now,
+        invalidationReason: "manual_all"
+      });
+    }
     return;
   }
 
-  const target = await getTableTarget(table);
-  recordCache.delete(cacheKey(target.appToken, target.tableId));
+  recordCache.delete(recordsCacheKey(table));
+  recordCacheInvalidations.set(table, {
+    lastInvalidatedAt: Date.now(),
+    invalidationReason: "write"
+  });
 }
 
 export function getRecordsCacheTtlMs(table: TableKey) {
@@ -535,11 +622,91 @@ export function getFieldMetaCacheTtlMs() {
   return FIELD_META_TTL_MS;
 }
 
+export function getBitableCacheStatus() {
+  const now = Date.now();
+  const tables = Object.keys(TABLE_NAMES) as TableKey[];
+  const records = Object.fromEntries(
+    tables.map((table) => {
+      const cached = recordCache.get(recordsCacheKey(table));
+      const invalidation = recordCacheInvalidations.get(table);
+      return [
+        table,
+        {
+          hasCache: Boolean(cached && cached.expiresAt > now),
+          cacheKey: recordsCacheKey(table),
+          ageMs: cached ? now - cached.createdAt : null,
+          ttlMs: RECORD_CACHE_TTL_MS[table],
+          recordsCount: cached?.records.length ?? 0,
+          lastInvalidatedAt: invalidation?.lastInvalidatedAt ?? null,
+          invalidationReason: invalidation?.invalidationReason ?? null,
+          expiresInMs: cached ? Math.max(0, cached.expiresAt - now) : 0
+        }
+      ];
+    })
+  ) as Record<
+    TableKey,
+    {
+      hasCache: boolean;
+      cacheKey: string;
+      ageMs: number | null;
+      ttlMs: number;
+      recordsCount: number;
+      lastInvalidatedAt: number | null;
+      invalidationReason: string | null;
+      expiresInMs: number;
+    }
+  >;
+
+  const fieldsMeta = Object.fromEntries(
+    tables.map((table) => {
+      const entries = [...fieldMetaCache.values()].filter(
+        (entry) => entry.table === table
+      );
+      const active = entries.find((entry) => entry.expiresAt > now);
+      return [
+        table,
+        {
+          hasCache: Boolean(active),
+          ageMs: active ? now - active.createdAt : null,
+          ttlMs: FIELD_META_TTL_MS,
+          fieldsCount: active?.meta.fieldNames.size ?? 0,
+          optionFieldsCount: active
+            ? Object.keys(active.meta.optionNameByField).length
+            : 0,
+          expiresInMs: active ? Math.max(0, active.expiresAt - now) : 0
+        }
+      ];
+    })
+  ) as Record<
+    TableKey,
+    {
+      hasCache: boolean;
+      ageMs: number | null;
+      ttlMs: number;
+      fieldsCount: number;
+      optionFieldsCount: number;
+      expiresInMs: number;
+    }
+  >;
+
+  return { records, fieldsMeta };
+}
+
+export function expireRecordsCacheForTest(table: TableKey) {
+  const cached = recordCache.get(recordsCacheKey(table));
+  if (!cached) return;
+  recordCache.set(recordsCacheKey(table), {
+    ...cached,
+    expiresAt: Date.now() - 1
+  });
+}
+
 export function resetBitableCachesForTest() {
   appTokenCache = undefined;
   tableIdCache = undefined;
   fieldMetaCache.clear();
   recordCache.clear();
+  recordCacheInvalidations.clear();
   unresolvedOptionWarnings.clear();
 }
 

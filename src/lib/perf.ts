@@ -2,7 +2,23 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { TableKey } from "./bitable";
 
 type RecordsCount = Partial<Record<TableKey, number>>;
-type CacheHits = Partial<Record<`${TableKey}Hit`, boolean>> & {
+export type CacheMissReason =
+  | "empty"
+  | "expired"
+  | "invalidated"
+  | "bypassed"
+  | "disabled"
+  | "tableKeyMismatch";
+
+export type TableCachePerf = {
+  hit: boolean;
+  cacheKey: string;
+  ageMs: number | null;
+  ttlMs: number;
+  missReason: CacheMissReason | null;
+};
+
+type CacheState = Partial<Record<TableKey, TableCachePerf>> & {
   fieldsMetaHit?: boolean;
 };
 
@@ -13,7 +29,7 @@ type PerfState = {
   fieldsMetaMs: number;
   normalizeMs: number;
   recordsCount: RecordsCount;
-  cache: CacheHits;
+  cache: CacheState;
 };
 
 const TABLES: TableKey[] = [
@@ -54,18 +70,14 @@ export function recordTablePerf(input: {
   table?: TableKey;
   ms: number;
   records: number;
-  cacheHit: boolean;
+  cache: TableCachePerf;
 }) {
   const state = storage.getStore();
   if (!state || !input.table) return;
 
   state.tableMs[input.table] = (state.tableMs[input.table] ?? 0) + input.ms;
   state.recordsCount[input.table] = input.records;
-  const key = `${input.table}Hit` as const;
-  state.cache[key] =
-    state.cache[key] === undefined
-      ? input.cacheHit
-      : state.cache[key] && input.cacheHit;
+  state.cache[input.table] = input.cache;
 }
 
 export function recordFieldsMetaPerf(input: { ms: number; cacheHit: boolean }) {
@@ -107,12 +119,12 @@ export function buildPerfLog(state: PerfState) {
   };
   output.cache = {
     fieldsMetaHit: state.cache.fieldsMetaHit ?? false,
-    peopleHit: state.cache.peopleHit ?? false,
-    accountsHit: state.cache.accountsHit ?? false,
-    dailyHit: state.cache.dailyHit ?? false,
-    reviewsHit: state.cache.reviewsHit ?? false,
-    rankingsHit: state.cache.rankingsHit ?? false,
-    pushLogsHit: state.cache.pushLogsHit ?? false
+    people: state.cache.people ?? emptyCachePerf("people"),
+    accounts: state.cache.accounts ?? emptyCachePerf("accounts"),
+    daily: state.cache.daily ?? emptyCachePerf("daily"),
+    reviews: state.cache.reviews ?? emptyCachePerf("reviews"),
+    rankings: state.cache.rankings ?? emptyCachePerf("rankings"),
+    pushLogs: state.cache.pushLogs ?? emptyCachePerf("pushLogs")
   };
 
   return output;
@@ -120,4 +132,14 @@ export function buildPerfLog(state: PerfState) {
 
 function roundMs(value: number) {
   return Math.round(value);
+}
+
+function emptyCachePerf(table: TableKey): TableCachePerf {
+  return {
+    hit: false,
+    cacheKey: table,
+    ageMs: null,
+    ttlMs: 0,
+    missReason: "disabled"
+  };
 }
