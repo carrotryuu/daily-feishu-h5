@@ -13,6 +13,10 @@ import {
   selectedAccountIdFromSelectValue,
   type DailyFormAccount
 } from "@/lib/daily-form";
+import {
+  buildDailySuccessDialog,
+  type SuccessDialog
+} from "@/lib/frontend-feedback";
 
 type DailyRow = {
   recordId: string;
@@ -47,6 +51,7 @@ export default function DailyPage() {
   const [data, setData] = useState<DailyData | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [successDialog, setSuccessDialog] = useState<SuccessDialog | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -147,6 +152,7 @@ export default function DailyPage() {
     setSaving(true);
     setMessage("");
     setError("");
+    setSuccessDialog(null);
 
     try {
       const response = await fetchWithTimeout(
@@ -166,7 +172,7 @@ export default function DailyPage() {
         return;
       }
 
-      setMessage("日报已提交");
+      setSuccessDialog(buildDailySuccessDialog(form.dailyType, payload));
       setForm((current) => ({
         ...current,
         remainingCredits: "",
@@ -210,6 +216,11 @@ export default function DailyPage() {
     });
   }
 
+  async function confirmDailySuccess() {
+    setSuccessDialog(null);
+    await load();
+  }
+
   return (
     <main className="page">
       <div className="page-title">
@@ -233,6 +244,24 @@ export default function DailyPage() {
         </div>
       ) : null}
       {message ? <div className="notice success">{message}</div> : null}
+      {successDialog ? (
+        <div className="dialog-backdrop" role="dialog" aria-modal="true">
+          <div className="dialog-card">
+            <h2>{successDialog.title}</h2>
+            <p>{successDialog.content}</p>
+            {successDialog.warning ? (
+              <p className="dialog-warning">{successDialog.warning}</p>
+            ) : null}
+            <button
+              className="primary"
+              type="button"
+              onClick={() => void confirmDailySuccess()}
+            >
+              确认
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {data ? (
         <section className="grid">

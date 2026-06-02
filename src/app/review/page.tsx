@@ -1,6 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import {
+  buildReviewSuccessDialog,
+  type SuccessDialog
+} from "@/lib/frontend-feedback";
 import { displayValue, safeArray } from "@/lib/review-display";
 
 type PendingDaily = {
@@ -89,6 +93,7 @@ export default function ReviewPage() {
   const [selected, setSelected] = useState<PendingDaily | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [successDialog, setSuccessDialog] = useState<SuccessDialog | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     grade: "",
@@ -141,36 +146,59 @@ export default function ReviewPage() {
     setSaving(true);
     setError("");
     setMessage("");
-    const response = await fetch("/api/review", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        recordId: selected.recordId,
-        grade: form.grade,
-        note: form.note,
-        action: form.action,
-        markAbnormal: form.action === "abnormal" || form.markAbnormal,
-        includeRanking: isSelectedProduction && form.includeRanking
-      })
-    });
-    const payload = await response.json().catch(() => ({}));
-    setSaving(false);
+    setSuccessDialog(null);
 
-    if (!response.ok) {
-      setError(payload.error || "审核提交失败");
-      return;
+    try {
+      const reviewedRecordId = selected.recordId;
+      const response = await fetch("/api/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recordId: selected.recordId,
+          grade: form.grade,
+          note: form.note,
+          action: form.action,
+          markAbnormal: form.action === "abnormal" || form.markAbnormal,
+          includeRanking: isSelectedProduction && form.includeRanking
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setError(payload.error || "审核提交失败");
+        return;
+      }
+
+      setSuccessDialog(buildReviewSuccessDialog());
+      setSelected(null);
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              pending: current.pending.filter(
+                (row) => row.recordId !== reviewedRecordId
+              )
+            }
+          : current
+      );
+      setForm({
+        grade: "",
+        note: "",
+        markAbnormal: false,
+        action: "approve",
+        includeRanking: true
+      });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "审核提交失败");
+    } finally {
+      setSaving(false);
     }
+  }
 
-    setMessage("审核已提交");
-    setSelected(null);
-    setForm({
-      grade: "",
-      note: "",
-      markAbnormal: false,
-      action: "approve",
-      includeRanking: true
-    });
+  async function confirmReviewSuccess() {
+    setSuccessDialog(null);
     await load();
+    setSelected(null);
   }
 
   const pending = safeArray<PendingDaily>(data?.pending);
@@ -206,6 +234,21 @@ export default function ReviewPage() {
         </div>
       ) : null}
       {message ? <div className="notice success">{message}</div> : null}
+      {successDialog ? (
+        <div className="dialog-backdrop" role="dialog" aria-modal="true">
+          <div className="dialog-card">
+            <h2>{successDialog.title}</h2>
+            <p>{successDialog.content}</p>
+            <button
+              className="primary"
+              type="button"
+              onClick={() => void confirmReviewSuccess()}
+            >
+              确认
+            </button>
+          </div>
+        </div>
+      ) : null}
       {data?.debug ? (
         <div className="notice">
           日报总数 {displayValue(data.debug.totalDailyRecords)} / 待审核{" "}
