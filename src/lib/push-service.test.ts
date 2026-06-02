@@ -16,12 +16,12 @@ import type { BitableRecord, DailyRecord, Person } from "./types";
 test("sendBotMessage sends by Feishu user_id", async (t) => {
   const mock = installPushFetchMock(t);
 
-  await sendBotMessage({ userId: "g42g6447", text: "hello" });
+  await sendBotMessage({ userId: "851g9gb4", text: "hello" });
 
   assert.equal(mock.messageUrls.length, 1);
   assert.match(mock.messageUrls[0], /receive_id_type=user_id/);
   assert.doesNotMatch(mock.messageUrls[0], /receive_id_type=open_id/);
-  assert.equal(mock.messageBodies[0].receive_id, "g42g6447");
+  assert.equal(mock.messageBodies[0].receive_id, "851g9gb4");
 });
 
 test("missing userId does not call Feishu message API and records failure", async (t) => {
@@ -35,6 +35,8 @@ test("missing userId does not call Feishu message API and records failure", asyn
 
   assert.equal(mock.messageUrls.length, 0);
   assert.equal(mock.recordsWrites.length, 1);
+  assert.equal(result.skipped, true);
+  assert.equal(result.skipReason, "missing_user_id");
   assert.equal(result.failedReason, "缺少用户ID");
 });
 
@@ -96,6 +98,25 @@ test("missing userId is skipped with missing_user_id", () => {
   assert.equal(plan.skipped[0].skipReason, "missing_user_id");
 });
 
+test("skipped push plan results always include skipReason", () => {
+  const plan = buildPushPlan({
+    people: [
+      person({ userId: "", role: ROLES.animator }),
+      person({ userId: "typist_1", role: ROLES.typist })
+    ],
+    logs: [],
+    daily: [],
+    date: "2026-06-02"
+  });
+
+  assert.equal(plan.skipped.length, 2);
+  for (const skipped of plan.skipped) {
+    assert.equal(skipped.skipped, true);
+    assert.equal(typeof skipped.skipReason, "string");
+    assert.equal(skipped.receiveIdType, "user_id");
+  }
+});
+
 test("successful push result includes receiveIdType user_id", async (t) => {
   installPushFetchMock(t);
   const result = await pushOne(
@@ -110,12 +131,56 @@ test("successful push result includes receiveIdType user_id", async (t) => {
   assert.equal(result.receiveId, "g42g6447");
 });
 
-function installPushFetchMock(t: TestContext) {
+test("push logs record receiveIdType and receiveId", async (t) => {
+  const mock = installPushFetchMock(t);
+  await pushOne(
+    person({ userId: "g42g6447", role: ROLES.animator }),
+    PUSH_TYPES.daily,
+    "hello",
+    "2026-06-02"
+  );
+
+  const fields = mock.recordsWrites[0].fields;
+  assert.equal(fields[TABLE_FIELDS.pushLogs.receiveIdType], "user_id");
+  assert.equal(fields[TABLE_FIELDS.pushLogs.receiveId], "g42g6447");
+});
+
+test("Feishu API error keeps original code and msg", async (t) => {
+  installPushFetchMock(t, {
+    messageError: {
+      code: 230001,
+      msg: "The request you send is not a valid {open_id} or not exists"
+    }
+  });
+
+  const result = await pushOne(
+    person({ userId: "851g9gb4", role: ROLES.animator }),
+    PUSH_TYPES.daily,
+    "hello",
+    "2026-06-02"
+  );
+
+  assert.equal(result.status, "失败");
+  assert.equal(result.receiveIdType, "user_id");
+  assert.equal(result.receiveId, "851g9gb4");
+  assert.equal(result.feishuCode, 230001);
+  assert.equal(
+    result.feishuMsg,
+    "The request you send is not a valid {open_id} or not exists"
+  );
+});
+
+function installPushFetchMock(
+  t: TestContext,
+  options: {
+    messageError?: { code: number; msg: string };
+  } = {}
+) {
   resetBitableCachesForTest();
   const originalFetch = globalThis.fetch;
   const messageUrls: string[] = [];
   const messageBodies: Array<{ receive_id?: string }> = [];
-  const recordsWrites: unknown[] = [];
+  const recordsWrites: Array<{ fields: Record<string, unknown> }> = [];
 
   process.env.FEISHU_APP_ID = "app_id";
   process.env.FEISHU_APP_SECRET = "app_secret";
@@ -139,6 +204,16 @@ function installPushFetchMock(t: TestContext) {
     if (url.includes("/open-apis/im/v1/messages")) {
       messageUrls.push(url);
       messageBodies.push(JSON.parse(String(init?.body || "{}")));
+      if (options.messageError) {
+        return Response.json(
+          {
+            code: options.messageError.code,
+            msg: options.messageError.msg,
+            data: {}
+          },
+          { status: 400 }
+        );
+      }
       return Response.json({
         code: 0,
         data: { message_id: "msg_1" }

@@ -383,6 +383,8 @@ export function toPushLogFields(record: PushLogRecord): RawFields {
     [f.role]: record.role,
     [f.group]: record.group,
     [f.type]: record.type,
+    [f.receiveIdType]: record.receiveIdType || "",
+    [f.receiveId]: record.receiveId || "",
     [f.pushedAt]: dateTimeToMs(record.pushedAt),
     [f.status]: record.status,
     [f.failedReason]: record.failedReason || ""

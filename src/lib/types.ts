@@ -104,6 +104,8 @@ export type PushLogRecord = {
   role: "动画师" | "导演";
   group: string;
   type: "日报填写提醒" | "日报审核提醒";
+  receiveIdType?: "user_id";
+  receiveId?: string;
   pushedAt: string;
   status: "成功" | "失败";
   failedReason?: string;

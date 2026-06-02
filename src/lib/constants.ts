@@ -194,6 +194,8 @@ export const TABLE_FIELDS = {
     role: "角色",
     group: "所属小组",
     type: "推送类型",
+    receiveIdType: "receiveIdType",
+    receiveId: "receiveId",
     pushedAt: "推送时间",
     status: "推送状态",
     failedReason: "失败原因"

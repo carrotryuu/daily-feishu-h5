@@ -48,6 +48,8 @@ type PushSkippedResult = {
   type: string;
   skipped: true;
   skipReason: PushSkipReason;
+  receiveIdType?: "user_id";
+  receiveId?: string;
 };
 
 export async function runDailyPush(options: RunDailyPushOptions = {}) {
@@ -223,7 +225,9 @@ function skippedResultFor(
     group: person.group,
     type,
     skipped: true,
-    skipReason
+    skipReason,
+    receiveIdType: "user_id",
+    receiveId: person.userId
   };
 }
 
@@ -242,6 +246,8 @@ export async function pushOne(
     role: person.role as PushLogRecord["role"],
     group: person.group,
     type,
+    receiveIdType,
+    receiveId,
     pushedAt: nowIso()
   };
 
@@ -267,6 +273,8 @@ export async function pushOne(
       userId: person.userId,
       name: person.name,
       type,
+      skipped: true as const,
+      skipReason: "missing_user_id" as const,
       status: "失败" as const,
       failedReason,
       receiveIdType,
@@ -325,7 +333,9 @@ export async function pushOne(
       status: "失败" as const,
       failedReason,
       receiveIdType,
-      receiveId
+      receiveId,
+      feishuCode,
+      feishuMsg
     };
   }
 }
