@@ -1,5 +1,4 @@
 import {
-  DAILY_STATUS,
   PUSH_TYPES,
   ROLES,
   TABLE_FIELDS,
@@ -14,8 +13,6 @@ import {
   getDailyRecords,
   getPeople,
   getPushLogRecords,
-  normalizeFieldText,
-  normalizeGroupName,
   toPushLogFields
 } from "./records";
 import type { BitableRecord, DailyRecord, Person, PushLogRecord } from "./types";
@@ -32,6 +29,7 @@ export type PushSkipReason =
 export type RunDailyPushOptions = {
   force?: boolean;
   date?: string;
+  testUserId?: string;
 };
 
 type PushTarget = {
@@ -64,7 +62,8 @@ export async function runDailyPush(options: RunDailyPushOptions = {}) {
     logs,
     daily,
     date,
-    force: Boolean(options.force)
+    force: Boolean(options.force),
+    testUserId: options.testUserId
   });
 
   for (const skipped of plan.skipped) {
@@ -100,6 +99,7 @@ export function buildPushPlan(input: {
   daily: BitableRecord<DailyRecord>[];
   date: string;
   force?: boolean;
+  testUserId?: string;
 }) {
   const existingKeys = new Set(
     input.logs.map((record) => {
@@ -115,7 +115,26 @@ export function buildPushPlan(input: {
   const skipped: PushSkippedResult[] = [];
 
   for (const person of input.people) {
+    if (input.testUserId && person.userId !== input.testUserId) {
+      continue;
+    }
+
     const targetType = pushTypeForPerson(person);
+
+    if (input.testUserId) {
+      if (!person.userId) {
+        skipped.push(skippedResultFor(person, PUSH_TYPES.daily, "missing_user_id"));
+        continue;
+      }
+
+      targets.push({
+        person,
+        type: PUSH_TYPES.daily,
+        text: pushText(PUSH_TYPES.daily)
+      });
+      continue;
+    }
+
     const skipReason = resolveSkipReason({
       person,
       type: targetType,
@@ -149,17 +168,13 @@ function resolveSkipReason(input: {
   existingKeys: Set<string>;
   force: boolean;
 }): PushSkipReason | undefined {
-  if (!isWorkday(input.date)) return "today_not_workday";
   if (!isEnabledValue(input.person.enabled)) return "disabled_user";
   if (!input.person.userId) return "missing_user_id";
   if (!input.type) return "unsupported_role";
+  if (!input.force && !isWorkday(input.date)) return "today_not_workday";
 
   if (input.type === PUSH_TYPES.daily && hasSubmittedToday(input.person, input.daily, input.date)) {
     return "already_submitted_today";
-  }
-
-  if (input.type === PUSH_TYPES.review && !hasPendingReview(input.person, input.daily)) {
-    return "no_pending_review";
   }
 
   const key = [input.date, input.person.userId, input.type].join("|");
@@ -173,7 +188,6 @@ function resolveSkipReason(input: {
 function pushTypeForPerson(person: Person) {
   const role = normalizeRole(String(person.role));
   if (role === ROLES.animator) return PUSH_TYPES.daily;
-  if (role === ROLES.director || role === ROLES.manager) return PUSH_TYPES.review;
   return undefined;
 }
 
@@ -182,12 +196,7 @@ function pushText(type: PushLogRecord["type"]) {
     return `请及时填写今日或昨日日报：${getEnv().appUrl}/daily`;
   }
 
-  return [
-    "请及时审核待审核日报。",
-    `${getEnv().appUrl}/review`,
-    `${getEnv().appUrl}/account`,
-    `${getEnv().appUrl}/ranking`
-  ].join("\n");
+  return "";
 }
 
 function hasSubmittedToday(
@@ -198,19 +207,6 @@ function hasSubmittedToday(
   return daily.some(
     (record) => record.fields.userId === person.userId && record.fields.date === date
   );
-}
-
-function hasPendingReview(person: Person, daily: BitableRecord<DailyRecord>[]) {
-  const role = normalizeRole(String(person.role));
-  const directorGroup = normalizeGroupName(person.group);
-
-  return daily.some((record) => {
-    if (normalizeFieldText(record.fields.status) !== DAILY_STATUS.pending) {
-      return false;
-    }
-    if (role === ROLES.manager) return true;
-    return normalizeGroupName(record.fields.group) === directorGroup;
-  });
 }
 
 function skippedResultFor(
@@ -342,11 +338,7 @@ export async function pushOne(
 
 export function isPushRole(role: string) {
   const normalized = normalizeRole(role);
-  return (
-    normalized === ROLES.animator ||
-    normalized === ROLES.director ||
-    normalized === ROLES.manager
-  );
+  return normalized === ROLES.animator;
 }
 
 function isWorkday(date: string) {

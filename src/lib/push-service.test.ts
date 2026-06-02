@@ -40,6 +40,33 @@ test("missing userId does not call Feishu message API and records failure", asyn
   assert.equal(result.failedReason, "缺少用户ID");
 });
 
+test("Monday to Saturday pushes unsubmitted animators", () => {
+  for (const date of ["2026-06-01", "2026-06-02", "2026-06-06"]) {
+    const plan = buildPushPlan({
+      people: [person({ userId: `animator_${date}`, role: ROLES.animator })],
+      logs: [],
+      daily: [],
+      date
+    });
+
+    assert.equal(plan.skipped.length, 0);
+    assert.equal(plan.targets.length, 1);
+    assert.equal(plan.targets[0].type, PUSH_TYPES.daily);
+  }
+});
+
+test("Sunday is skipped with today_not_workday", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "animator_1", role: ROLES.animator })],
+    logs: [],
+    daily: [],
+    date: "2026-06-07"
+  });
+
+  assert.equal(plan.targets.length, 0);
+  assert.equal(plan.skipped[0].skipReason, "today_not_workday");
+});
+
 test("submitted animator is skipped with already_submitted_today", () => {
   const plan = buildPushPlan({
     people: [person({ userId: "animator_1", role: ROLES.animator })],
@@ -52,7 +79,33 @@ test("submitted animator is skipped with already_submitted_today", () => {
   assert.equal(plan.skipped[0].skipReason, "already_submitted_today");
 });
 
-test("director without pending review is skipped with no_pending_review", () => {
+test("daily push does not create review reminders", () => {
+  const plan = buildPushPlan({
+    people: [
+      person({ userId: "animator_1", role: ROLES.animator }),
+      person({ userId: "director_1", role: ROLES.director, group: "A" }),
+      person({ userId: "manager_1", role: ROLES.manager, group: "A" })
+    ],
+    logs: [],
+    daily: [
+      daily("daily_1", {
+        userId: "other_animator",
+        status: DAILY_STATUS.pending,
+        group: "A"
+      })
+    ],
+    date: "2026-06-02"
+  });
+
+  assert.equal(plan.targets.length, 1);
+  assert.equal(plan.targets[0].type, PUSH_TYPES.daily);
+  assert.equal(
+    [...plan.targets, ...plan.skipped].some((item) => item.type === PUSH_TYPES.review),
+    false
+  );
+});
+
+test("director is unsupported for daily fill reminders", () => {
   const plan = buildPushPlan({
     people: [person({ userId: "director_1", role: ROLES.director, group: "A" })],
     logs: [],
@@ -60,7 +113,8 @@ test("director without pending review is skipped with no_pending_review", () => 
     date: "2026-06-02"
   });
 
-  assert.equal(plan.skipped[0].skipReason, "no_pending_review");
+  assert.equal(plan.targets.length, 0);
+  assert.equal(plan.skipped[0].skipReason, "unsupported_role");
 });
 
 test("duplicate push is skipped with duplicate_push_today", () => {
@@ -85,6 +139,51 @@ test("force push ignores duplicate_push_today", () => {
 
   assert.equal(plan.skipped.length, 0);
   assert.equal(plan.targets.length, 1);
+});
+
+test("force push does not ignore already_submitted_today", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "animator_1", role: ROLES.animator })],
+    logs: [pushLog("animator_1", PUSH_TYPES.daily, "2026-06-02")],
+    daily: [daily("daily_1", { userId: "animator_1", date: "2026-06-02" })],
+    date: "2026-06-02",
+    force: true
+  });
+
+  assert.equal(plan.targets.length, 0);
+  assert.equal(plan.skipped[0].skipReason, "already_submitted_today");
+});
+
+test("force push can bypass today_not_workday", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "animator_1", role: ROLES.animator })],
+    logs: [],
+    daily: [],
+    date: "2026-06-07",
+    force: true
+  });
+
+  assert.equal(plan.skipped.length, 0);
+  assert.equal(plan.targets.length, 1);
+  assert.equal(plan.targets[0].type, PUSH_TYPES.daily);
+});
+
+test("testUserId sends only the specified user and ignores submitted daily", () => {
+  const plan = buildPushPlan({
+    people: [
+      person({ userId: "animator_1", role: ROLES.animator }),
+      person({ userId: "animator_2", role: ROLES.animator })
+    ],
+    logs: [pushLog("animator_1", PUSH_TYPES.daily, "2026-06-02")],
+    daily: [daily("daily_1", { userId: "animator_1", date: "2026-06-02" })],
+    date: "2026-06-02",
+    testUserId: "animator_1"
+  });
+
+  assert.equal(plan.skipped.length, 0);
+  assert.equal(plan.targets.length, 1);
+  assert.equal(plan.targets[0].person.userId, "animator_1");
+  assert.equal(plan.targets[0].type, PUSH_TYPES.daily);
 });
 
 test("missing userId is skipped with missing_user_id", () => {

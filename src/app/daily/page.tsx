@@ -41,6 +41,8 @@ type DailyData = {
   recentDaily: DailyRow[];
 };
 
+const DAILY_SUBMIT_TIMEOUT_MS = 120_000;
+
 export default function DailyPage() {
   const [data, setData] = useState<DailyData | null>(null);
   const [error, setError] = useState("");
@@ -146,31 +148,66 @@ export default function DailyPage() {
     setMessage("");
     setError("");
 
-    const response = await fetch("/api/daily", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildDailySubmitPayload(form, selectedDate))
-    });
-    const payload = await readResponsePayload(response);
-    setSaving(false);
+    try {
+      const response = await fetchWithTimeout(
+        "/api/daily",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildDailySubmitPayload(form, selectedDate))
+        },
+        DAILY_SUBMIT_TIMEOUT_MS
+      );
+      const payload = await readResponsePayload(response);
 
-    if (!response.ok) {
-      setError(formatSubmitError(payload));
-      return;
+      if (!response.ok) {
+        setError(formatSubmitError(payload));
+        return;
+      }
+
+      setMessage("日报已提交");
+      setForm((current) => ({
+        ...current,
+        remainingCredits: "",
+        assetCount: "",
+        roughCutSeconds: "",
+        hasIssue: false,
+        issueNote: "",
+        nonProductionNote: ""
+      }));
+      appendSubmittedDaily(payload);
+    } catch (error) {
+      setError(formatClientSubmitError(error));
+    } finally {
+      setSaving(false);
     }
+  }
 
-    setMessage("日报已提交");
-    setForm((current) => ({
-      ...current,
-      remainingCredits: "",
-      assetCount: "",
-      roughCutSeconds: "",
-      hasIssue: false,
-      issueNote: "",
-      nonProductionNote: ""
-    }));
-    await load();
+  function appendSubmittedDaily(payload: Record<string, unknown>) {
+    const daily = payload.daily;
+    const recordId = typeof payload.recordId === "string" ? payload.recordId : "";
+    if (!data || !recordId || !daily || typeof daily !== "object") return;
+
+    const row = daily as Partial<DailyRow>;
+    setData({
+      ...data,
+      recentDaily: [
+        {
+          recordId,
+          dailyType: String(row.dailyType || form.dailyType),
+          date: String(row.date || selectedDate || ""),
+          account: String(row.account || ""),
+          platform: String(row.platform || ""),
+          remainingCredits: Number(row.remainingCredits || 0),
+          consumedCredits: Number(row.consumedCredits || 0),
+          roughCutSeconds: Number(row.roughCutSeconds || 0),
+          status: String(row.status || ""),
+          includeRanking: String(row.includeRanking || "")
+        },
+        ...data.recentDaily.filter((item) => item.recordId !== recordId)
+      ].slice(0, 20)
+    });
   }
 
   return (
@@ -438,6 +475,29 @@ async function readResponsePayload(response: Response) {
   } catch {
     return { reason: text };
   }
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number
+) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function formatClientSubmitError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "提交等待时间过长，可能是飞书数据读取太慢。请先刷新页面确认是否已经提交成功，避免重复提交。";
+  }
+  if (error instanceof Error) return error.message || "提交失败";
+  return "提交失败";
 }
 
 function formatSubmitError(payload: Record<string, unknown>) {

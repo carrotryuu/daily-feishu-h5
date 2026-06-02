@@ -8,7 +8,12 @@ export async function GET(request: Request) {
   try {
     assertCron(request);
     const url = new URL(request.url);
-    return jsonOk(await runDailyPush({ force: url.searchParams.get("force") === "1" }));
+    return jsonOk(
+      await runDailyPush({
+        force: url.searchParams.get("force") === "1",
+        testUserId: url.searchParams.get("testUserId") || undefined
+      })
+    );
   } catch (error) {
     return jsonError(error);
   }
