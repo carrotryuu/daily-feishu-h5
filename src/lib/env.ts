@@ -41,3 +41,7 @@ export function getEnv(): Env {
     }
   };
 }
+
+export function getLoginUrl(appUrl = getEnv().appUrl) {
+  return `${appUrl.replace(/\/$/, "")}/api/auth/login`;
+}

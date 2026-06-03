@@ -6,7 +6,7 @@ import {
   normalizeRole
 } from "./constants";
 import { createRecord } from "./bitable";
-import { getEnv } from "./env";
+import { getLoginUrl } from "./env";
 import { FeishuApiError, sendBotMessage } from "./feishu";
 import { formatDate, nowIso, today } from "./dates";
 import {
@@ -193,7 +193,7 @@ function pushTypeForPerson(person: Person) {
 
 function pushText(type: PushLogRecord["type"]) {
   if (type === PUSH_TYPES.daily) {
-    return `请及时填写今日或昨日日报：${getEnv().appUrl}/daily`;
+    return `请及时填写今日或昨日日报：${getLoginUrl()}`;
   }
 
   return "";

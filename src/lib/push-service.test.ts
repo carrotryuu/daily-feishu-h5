@@ -13,6 +13,12 @@ import { sendBotMessage } from "./feishu";
 import { buildPushPlan, pushOne } from "./push-service";
 import type { BitableRecord, DailyRecord, Person } from "./types";
 
+process.env.FEISHU_APP_ID ||= "app_id";
+process.env.FEISHU_APP_SECRET ||= "app_secret";
+process.env.FEISHU_BASE_APP_TOKEN ||= "app_token";
+process.env.APP_URL ||= "http://localhost:3000";
+process.env.CRON_SECRET ||= "cron_secret";
+
 test("sendBotMessage sends by Feishu user_id", async (t) => {
   const mock = installPushFetchMock(t);
 
@@ -53,6 +59,23 @@ test("Monday to Saturday pushes unsubmitted animators", () => {
     assert.equal(plan.targets.length, 1);
     assert.equal(plan.targets[0].type, PUSH_TYPES.daily);
   }
+});
+
+test("daily fill reminder uses Feishu login entry without old page links", () => {
+  process.env.APP_URL = "http://47.110.53.170/";
+
+  const plan = buildPushPlan({
+    people: [person({ userId: "animator_1", role: ROLES.animator })],
+    logs: [],
+    daily: [],
+    date: "2026-06-02"
+  });
+
+  assert.equal(plan.targets.length, 1);
+  assert.match(plan.targets[0].text, /http:\/\/47\.110\.53\.170\/api\/auth\/login/);
+  assert.doesNotMatch(plan.targets[0].text, /47\.110\.53\.170\/\/api\/auth\/login/);
+  assert.doesNotMatch(plan.targets[0].text, /\/daily/);
+  assert.doesNotMatch(plan.targets[0].text, /\/review/);
 });
 
 test("Sunday is skipped with today_not_workday", () => {

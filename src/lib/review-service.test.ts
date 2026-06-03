@@ -336,7 +336,7 @@ test("review success notifies animator by daily user_id and writes push log", as
       sentMessages.push(message);
       return { message_id: "msg_1" };
     },
-    appUrl: "http://47.110.53.170"
+    appUrl: "http://47.110.53.170/"
   };
 
   const result = await submitReviewWithDependencies(
@@ -357,7 +357,10 @@ test("review success notifies animator by daily user_id and writes push log", as
   assert.equal(sentMessages[0].userId, "animator_daily_id");
   assert.match(sentMessages[0].text, /审核结果：驳回/);
   assert.match(sentMessages[0].text, /审核回复：请补充今日生成问题说明后重新提交。/);
-  assert.match(sentMessages[0].text, /http:\/\/47\.110\.53\.170\/daily/);
+  assert.match(sentMessages[0].text, /http:\/\/47\.110\.53\.170\/api\/auth\/login/);
+  assert.doesNotMatch(sentMessages[0].text, /47\.110\.53\.170\/\/api\/auth\/login/);
+  assert.doesNotMatch(sentMessages[0].text, /\/daily/);
+  assert.doesNotMatch(sentMessages[0].text, /\/review/);
   assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.type], PUSH_TYPES.reviewResult);
   assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.status], "成功");
   assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.receiveIdType], "user_id");

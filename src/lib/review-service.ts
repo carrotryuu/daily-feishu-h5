@@ -11,7 +11,7 @@ import {
 } from "./constants";
 import { createRecord, updateRecord } from "./bitable";
 import { calculateConsumedCredits } from "./domain";
-import { getEnv } from "./env";
+import { getEnv, getLoginUrl } from "./env";
 import { FeishuApiError, sendBotMessage } from "./feishu";
 import { formatDate, nowIso } from "./dates";
 import {
@@ -312,7 +312,7 @@ function buildReviewNotifyText(input: {
     `审核回复：${input.reviewComment || "无"}`,
     "",
     "请进入日报系统查看详情：",
-    `${input.appUrl}/daily`
+    getLoginUrl(input.appUrl)
   ].join("\n");
 }
 
