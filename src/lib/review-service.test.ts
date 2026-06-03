@@ -8,10 +8,12 @@ import {
   ACCOUNT_TYPES,
   DAILY_STATUS,
   DAILY_TYPES,
+  PUSH_TYPES,
   ROLES,
   TABLE_FIELDS,
   YES_NO
 } from "./constants";
+import { FeishuApiError } from "./feishu";
 import { mapDaily } from "./records";
 import {
   buildReviewListData,
@@ -214,17 +216,25 @@ test("director can review non-production daily and update daily status", async (
     },
     createRecord: async (_table, fields) => ({ recordId: "review_1", fields }),
     recomputeRanking: async (month) => ({ month, updated: 0 }),
-    nowIso: () => "2026-05-27T12:00:00.000Z"
+    nowIso: () => "2026-05-27T12:00:00.000Z",
+    sendBotMessage: async () => ({ message_id: "msg_1" }),
+    appUrl: "http://localhost:3000"
   };
 
   const result = await submitReviewWithDependencies(
     director(),
-    { recordId: record.recordId, grade: "K2", includeRanking: true },
+    {
+      recordId: record.recordId,
+      grade: "K2",
+      includeRanking: true,
+      reviewComment: "筹备日报通过"
+    },
     dependencies
   );
 
   assert.equal(result.status, DAILY_STATUS.approved);
   assert.equal(updatedFields?.[TABLE_FIELDS.daily.status], DAILY_STATUS.approved);
+  assert.equal(updatedFields?.[TABLE_FIELDS.daily.reviewReply], "筹备日报通过");
   assert.equal(updatedFields?.["审核状态"], undefined);
   assert.equal(updatedFields?.[TABLE_FIELDS.daily.includeRanking], YES_NO.no);
 });
@@ -245,16 +255,27 @@ test("director can reject pending daily and update daily status", async () => {
     },
     createRecord: async (_table, fields) => ({ recordId: "review_1", fields }),
     recomputeRanking: async (month) => ({ month, updated: 0 }),
-    nowIso: () => "2026-05-27T12:00:00.000Z"
+    nowIso: () => "2026-05-27T12:00:00.000Z",
+    sendBotMessage: async () => ({ message_id: "msg_1" }),
+    appUrl: "http://localhost:3000"
   };
 
   await submitReviewWithDependencies(
     director(),
-    { recordId: record.recordId, grade: "K2", action: "reject" },
+    {
+      recordId: record.recordId,
+      grade: "K2",
+      action: "reject",
+      reviewComment: "请补充生成问题说明"
+    },
     dependencies
   );
 
   assert.equal(updatedFields?.[TABLE_FIELDS.daily.status], DAILY_STATUS.rejected);
+  assert.equal(
+    updatedFields?.[TABLE_FIELDS.daily.reviewReply],
+    "请补充生成问题说明"
+  );
 });
 
 test("director can mark pending daily abnormal and update daily status", async () => {
@@ -273,16 +294,191 @@ test("director can mark pending daily abnormal and update daily status", async (
     },
     createRecord: async (_table, fields) => ({ recordId: "review_1", fields }),
     recomputeRanking: async (month) => ({ month, updated: 0 }),
-    nowIso: () => "2026-05-27T12:00:00.000Z"
+    nowIso: () => "2026-05-27T12:00:00.000Z",
+    sendBotMessage: async () => ({ message_id: "msg_1" }),
+    appUrl: "http://localhost:3000"
   };
 
   await submitReviewWithDependencies(
     director(),
-    { recordId: record.recordId, grade: "K2", action: "abnormal" },
+    {
+      recordId: record.recordId,
+      grade: "K2",
+      action: "abnormal",
+      reviewComment: "异常原因已记录"
+    },
     dependencies
   );
 
   assert.equal(updatedFields?.[TABLE_FIELDS.daily.status], DAILY_STATUS.abnormal);
+  assert.equal(updatedFields?.[TABLE_FIELDS.daily.reviewReply], "异常原因已记录");
+});
+
+test("review success notifies animator by daily user_id and writes push log", async () => {
+  const record = daily("production", { userId: "animator_daily_id" });
+  const sentMessages: Array<{ userId: string; text: string }> = [];
+  const createdRecords: Array<{ table: string; fields: Record<string, unknown> }> = [];
+  const dependencies: ReviewDependencies = {
+    getDailyRecords: async () => [record],
+    getPeople: async () => [],
+    updateRecord: async <T extends Record<string, unknown>>(
+      _table: string,
+      _recordId: string,
+      fields: Partial<T>
+    ) => ({ recordId: _recordId, fields: fields as T }),
+    createRecord: async (table, fields) => {
+      createdRecords.push({ table, fields });
+      return { recordId: `rec_${table}`, fields };
+    },
+    recomputeRanking: async (month) => ({ month, updated: 0 }),
+    nowIso: () => "2026-06-03T12:00:00.000Z",
+    sendBotMessage: async (message) => {
+      sentMessages.push(message);
+      return { message_id: "msg_1" };
+    },
+    appUrl: "http://47.110.53.170"
+  };
+
+  const result = await submitReviewWithDependencies(
+    director(),
+    {
+      recordId: record.recordId,
+      grade: "K2",
+      action: "reject",
+      reviewComment: "请补充今日生成问题说明后重新提交。"
+    },
+    dependencies
+  );
+
+  const pushLog = createdRecords.find((item) => item.table === "pushLogs")?.fields;
+  assert.equal(result.reviewNotify.status, "success");
+  assert.equal(result.reviewNotify.receiveIdType, "user_id");
+  assert.equal(result.reviewNotify.receiveId, "animator_daily_id");
+  assert.equal(sentMessages[0].userId, "animator_daily_id");
+  assert.match(sentMessages[0].text, /审核结果：驳回/);
+  assert.match(sentMessages[0].text, /审核回复：请补充今日生成问题说明后重新提交。/);
+  assert.match(sentMessages[0].text, /http:\/\/47\.110\.53\.170\/daily/);
+  assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.type], PUSH_TYPES.reviewResult);
+  assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.status], "成功");
+  assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.receiveIdType], "user_id");
+  assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.receiveId], "animator_daily_id");
+});
+
+test("review notify falls back to people user_id by animator name", async () => {
+  const record = daily("production", { userId: "", name: "动画师甲" });
+  const sentMessages: Array<{ userId: string; text: string }> = [];
+  const dependencies: ReviewDependencies = {
+    getDailyRecords: async () => [record],
+    getPeople: async () => [
+      person("person_1", { userId: "animator_people_id", name: "动画师甲" })
+    ],
+    updateRecord: async <T extends Record<string, unknown>>(
+      _table: string,
+      _recordId: string,
+      fields: Partial<T>
+    ) => ({ recordId: _recordId, fields: fields as T }),
+    createRecord: async (_table, fields) => ({ recordId: "rec_1", fields }),
+    recomputeRanking: async (month) => ({ month, updated: 0 }),
+    nowIso: () => "2026-06-03T12:00:00.000Z",
+    sendBotMessage: async (message) => {
+      sentMessages.push(message);
+      return { message_id: "msg_1" };
+    },
+    appUrl: "http://localhost:3000"
+  };
+
+  const result = await submitReviewWithDependencies(
+    director(),
+    { recordId: record.recordId, grade: "K2", reviewComment: "" },
+    dependencies
+  );
+
+  assert.equal(result.reviewNotify.status, "success");
+  assert.equal(result.reviewNotify.receiveId, "animator_people_id");
+  assert.equal(sentMessages[0].userId, "animator_people_id");
+  assert.match(sentMessages[0].text, /审核回复：无/);
+});
+
+test("missing animator user_id skips notify without blocking review", async () => {
+  const record = daily("production", { userId: "", name: "动画师甲" });
+  const createdRecords: Array<{ table: string; fields: Record<string, unknown> }> = [];
+  const dependencies: ReviewDependencies = {
+    getDailyRecords: async () => [record],
+    getPeople: async () => [person("person_1", { userId: "", name: "动画师甲" })],
+    updateRecord: async <T extends Record<string, unknown>>(
+      _table: string,
+      _recordId: string,
+      fields: Partial<T>
+    ) => ({ recordId: _recordId, fields: fields as T }),
+    createRecord: async (table, fields) => {
+      createdRecords.push({ table, fields });
+      return { recordId: "rec_1", fields };
+    },
+    recomputeRanking: async (month) => ({ month, updated: 0 }),
+    nowIso: () => "2026-06-03T12:00:00.000Z",
+    sendBotMessage: async () => {
+      throw new Error("should not send");
+    },
+    appUrl: "http://localhost:3000"
+  };
+
+  const result = await submitReviewWithDependencies(
+    director(),
+    { recordId: record.recordId, grade: "K2" },
+    dependencies
+  );
+
+  const pushLog = createdRecords.find((item) => item.table === "pushLogs")?.fields;
+  assert.equal(result.ok, true);
+  assert.equal(result.reviewNotify.status, "skipped");
+  assert.equal(result.reviewNotify.reason, "missing_animator_user_id");
+  assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.status], "跳过");
+  assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.failedReason], "missing_animator_user_id");
+});
+
+test("Feishu notify failure does not block review submit", async () => {
+  const record = daily("production", { userId: "animator_1" });
+  const createdRecords: Array<{ table: string; fields: Record<string, unknown> }> = [];
+  const dependencies: ReviewDependencies = {
+    getDailyRecords: async () => [record],
+    getPeople: async () => [],
+    updateRecord: async <T extends Record<string, unknown>>(
+      _table: string,
+      _recordId: string,
+      fields: Partial<T>
+    ) => ({ recordId: _recordId, fields: fields as T }),
+    createRecord: async (table, fields) => {
+      createdRecords.push({ table, fields });
+      return { recordId: "rec_1", fields };
+    },
+    recomputeRanking: async (month) => ({ month, updated: 0 }),
+    nowIso: () => "2026-06-03T12:00:00.000Z",
+    sendBotMessage: async () => {
+      throw new FeishuApiError({
+        message: "Feishu failed",
+        feishuCode: 230001,
+        feishuMsg: "invalid user_id",
+        path: "/open-apis/im/v1/messages"
+      });
+    },
+    appUrl: "http://localhost:3000"
+  };
+
+  const result = await submitReviewWithDependencies(
+    director(),
+    { recordId: record.recordId, grade: "K2" },
+    dependencies
+  );
+
+  const pushLog = createdRecords.find((item) => item.table === "pushLogs")?.fields;
+  assert.equal(result.ok, true);
+  assert.equal(result.reviewNotify.status, "failed");
+  assert.equal(result.reviewNotify.receiveIdType, "user_id");
+  assert.equal(result.reviewNotify.receiveId, "animator_1");
+  assert.equal(result.reviewNotify.feishuCode, 230001);
+  assert.equal(result.reviewNotify.feishuMsg, "invalid user_id");
+  assert.equal(pushLog?.[TABLE_FIELDS.pushLogs.status], "失败");
+  assert.match(String(pushLog?.[TABLE_FIELDS.pushLogs.failedReason]), /invalid user_id/);
 });
 
 test("director cannot see daily records from other groups", () => {

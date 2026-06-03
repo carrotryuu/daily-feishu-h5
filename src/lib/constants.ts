@@ -45,7 +45,8 @@ export const YES_NO = {
 
 export const PUSH_TYPES = {
   daily: "日报填写提醒",
-  review: "日报审核提醒"
+  review: "日报审核提醒",
+  reviewResult: "审核结果通知"
 } as const;
 
 export const K_WEIGHTS: Record<ReviewGrade, number> = {
@@ -155,6 +156,7 @@ export const TABLE_FIELDS = {
     nonProductionNote: "其他周期内容",
     status: "日报状态",
     includeRanking: "是否计入排行",
+    reviewReply: "审核回复",
     month: "月份",
     submittedAt: "提交时间"
   },

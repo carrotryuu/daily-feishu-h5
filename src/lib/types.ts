@@ -63,6 +63,7 @@ export type DailyRecord = {
   nonProductionNote?: string;
   status: DailyStatus;
   includeRanking: YesNo;
+  reviewReply?: string;
   month: string;
   submittedAt: string;
 };
@@ -103,11 +104,11 @@ export type PushLogRecord = {
   name: string;
   role: "动画师" | "导演";
   group: string;
-  type: "日报填写提醒" | "日报审核提醒";
+  type: "日报填写提醒" | "日报审核提醒" | "审核结果通知";
   receiveIdType?: "user_id";
   receiveId?: string;
   pushedAt: string;
-  status: "成功" | "失败";
+  status: "成功" | "失败" | "跳过";
   failedReason?: string;
 };
 

@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import {
-  buildReviewSuccessDialog,
+  buildReviewSuccessDialogForPayload,
   type SuccessDialog
 } from "@/lib/frontend-feedback";
 import { displayValue, safeArray } from "@/lib/review-display";
@@ -97,7 +97,7 @@ export default function ReviewPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     grade: "",
-    note: "",
+    reviewComment: "",
     markAbnormal: false,
     action: "approve",
     includeRanking: true
@@ -156,7 +156,7 @@ export default function ReviewPage() {
         body: JSON.stringify({
           recordId: selected.recordId,
           grade: form.grade,
-          note: form.note,
+          reviewComment: form.reviewComment,
           action: form.action,
           markAbnormal: form.action === "abnormal" || form.markAbnormal,
           includeRanking: isSelectedProduction && form.includeRanking
@@ -169,7 +169,7 @@ export default function ReviewPage() {
         return;
       }
 
-      setSuccessDialog(buildReviewSuccessDialog());
+      setSuccessDialog(buildReviewSuccessDialogForPayload(payload));
       setSelected(null);
       setData((current) =>
         current
@@ -183,7 +183,7 @@ export default function ReviewPage() {
       );
       setForm({
         grade: "",
-        note: "",
+        reviewComment: "",
         markAbnormal: false,
         action: "approve",
         includeRanking: true
@@ -401,11 +401,12 @@ export default function ReviewPage() {
                 <div className="notice">非生产日报不会计入排行。</div>
               )}
               <div className="field">
-                <label>审核备注</label>
+                <label>审核回复</label>
                 <textarea
-                  value={form.note}
+                  placeholder="可填写给动画师的说明，如驳回原因、修改建议等"
+                  value={form.reviewComment}
                   onChange={(event) =>
-                    setForm({ ...form, note: event.target.value })
+                    setForm({ ...form, reviewComment: event.target.value })
                   }
                 />
               </div>

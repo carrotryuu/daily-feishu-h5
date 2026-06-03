@@ -229,6 +229,7 @@ export function mapDaily(fields: RawFields): DailyRecord {
     nonProductionNote: f.nonProductionNote ? text(fields[f.nonProductionNote]) : "",
     status: text(fields[f.status]).trim() as DailyRecord["status"],
     includeRanking: text(fields[f.includeRanking]) as DailyRecord["includeRanking"],
+    reviewReply: text(fields[f.reviewReply]),
     month: text(fields[f.month]),
     submittedAt: dateTime(fields[f.submittedAt])
   };

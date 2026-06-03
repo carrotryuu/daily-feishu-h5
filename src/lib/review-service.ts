@@ -2,6 +2,7 @@ import {
   ACCOUNT_TYPES,
   DAILY_STATUS,
   DAILY_TYPES,
+  PUSH_TYPES,
   ROLES,
   TABLE_FIELDS,
   YES_NO,
@@ -10,12 +11,15 @@ import {
 } from "./constants";
 import { createRecord, updateRecord } from "./bitable";
 import { calculateConsumedCredits } from "./domain";
+import { getEnv } from "./env";
+import { FeishuApiError, sendBotMessage } from "./feishu";
 import { formatDate, nowIso } from "./dates";
 import {
   getPeople,
   getDailyRecords,
   normalizeFieldText,
   normalizeGroupName,
+  toPushLogFields,
   toReviewFields,
   type RawFields
 } from "./records";
@@ -32,9 +36,20 @@ export type ReviewSubmitInput = {
   recordId: string;
   grade: ReviewGrade;
   note?: string;
+  reviewComment?: string;
   markAbnormal?: boolean;
   includeRanking?: boolean;
   action?: "approve" | "reject" | "abnormal";
+};
+
+export type ReviewNotifyResult = {
+  status: "success" | "failed" | "skipped";
+  userId?: string;
+  receiveIdType: "user_id";
+  receiveId?: string;
+  reason?: string;
+  feishuCode?: number;
+  feishuMsg?: string;
 };
 
 export type ReviewDependencies = {
@@ -44,6 +59,8 @@ export type ReviewDependencies = {
   createRecord: typeof createRecord;
   recomputeRanking: typeof recomputeRanking;
   nowIso: typeof nowIso;
+  sendBotMessage?: typeof sendBotMessage;
+  appUrl?: string;
 };
 
 const defaultReviewDependencies: ReviewDependencies = {
@@ -52,7 +69,8 @@ const defaultReviewDependencies: ReviewDependencies = {
   updateRecord,
   createRecord,
   recomputeRanking,
-  nowIso
+  nowIso,
+  sendBotMessage
 };
 
 export async function getReviewPageData(user: CurrentUser) {
@@ -128,6 +146,7 @@ export async function submitReviewWithDependencies(
   }
 
   const reviewedAt = dependencies.nowIso();
+  const reviewComment = input.reviewComment?.trim() || "";
   const consumedCredits = resolvedConsumedCredits(daily.fields);
   const decision = reviewDecision({
     action: input.action,
@@ -151,7 +170,7 @@ export async function submitReviewWithDependencies(
     reviewerName: user.person.name,
     grade: input.grade,
     roughCutSeconds: daily.fields.roughCutSeconds,
-    note: input.note || "",
+    note: input.note || reviewComment,
     status: "已审核",
     reviewedAt,
     month: daily.fields.month
@@ -160,16 +179,185 @@ export async function submitReviewWithDependencies(
   const f = TABLE_FIELDS.daily;
   await dependencies.updateRecord<RawFields>("daily", daily.recordId, {
     [f.status]: decision.status,
-    [f.includeRanking]: decision.includeRanking ? YES_NO.yes : YES_NO.no
+    [f.includeRanking]: decision.includeRanking ? YES_NO.yes : YES_NO.no,
+    [f.reviewReply]: reviewComment
   });
   await dependencies.createRecord("reviews", toReviewFields(review));
   await dependencies.recomputeRanking(daily.fields.month);
+  const reviewNotify = await notifyAnimatorAfterReview({
+    daily,
+    people,
+    reviewerName: user.person.name,
+    reviewStatus: decision.status,
+    reviewComment,
+    dependencies
+  });
 
   return {
     ok: true,
     status: decision.status,
-    includeRanking: decision.includeRanking
+    includeRanking: decision.includeRanking,
+    reviewNotify
   };
+}
+
+async function notifyAnimatorAfterReview(input: {
+  daily: BitableRecord<DailyRecord>;
+  people: BitableRecord<Person>[];
+  reviewerName: string;
+  reviewStatus: DailyRecord["status"];
+  reviewComment: string;
+  dependencies: ReviewDependencies;
+}): Promise<ReviewNotifyResult> {
+  const receiveIdType = "user_id" as const;
+  const animatorUserId = resolveAnimatorUserId(input.daily.fields, input.people);
+  const pushedAt = input.dependencies.nowIso();
+  const baseLog = {
+    date: input.daily.fields.date,
+    userId: animatorUserId || "",
+    name: input.daily.fields.name,
+    role: ROLES.animator,
+    group: input.daily.fields.group,
+    type: PUSH_TYPES.reviewResult,
+    receiveIdType,
+    receiveId: animatorUserId || "",
+    pushedAt
+  };
+
+  if (!animatorUserId) {
+    const result: ReviewNotifyResult = {
+      status: "skipped",
+      receiveIdType,
+      reason: "missing_animator_user_id"
+    };
+    await writeReviewNotifyLog(input.dependencies, {
+      ...baseLog,
+      status: "跳过",
+      failedReason: result.reason
+    });
+    logReviewNotify(input, result, animatorUserId);
+    return result;
+  }
+
+  try {
+    await (input.dependencies.sendBotMessage || sendBotMessage)({
+      userId: animatorUserId,
+      text: buildReviewNotifyText({
+        daily: input.daily.fields,
+        reviewerName: input.reviewerName,
+        reviewStatus: input.reviewStatus,
+        reviewComment: input.reviewComment,
+        appUrl: input.dependencies.appUrl || getEnv().appUrl
+      })
+    });
+    const result: ReviewNotifyResult = {
+      status: "success",
+      userId: animatorUserId,
+      receiveIdType,
+      receiveId: animatorUserId
+    };
+    await writeReviewNotifyLog(input.dependencies, {
+      ...baseLog,
+      userId: animatorUserId,
+      receiveId: animatorUserId,
+      status: "成功"
+    });
+    logReviewNotify(input, result, animatorUserId);
+    return result;
+  } catch (error) {
+    const result: ReviewNotifyResult = {
+      status: "failed",
+      userId: animatorUserId,
+      receiveIdType,
+      receiveId: animatorUserId,
+      reason: error instanceof Error ? error.message : "unknown_error",
+      feishuCode: error instanceof FeishuApiError ? error.feishuCode : undefined,
+      feishuMsg: error instanceof FeishuApiError ? error.feishuMsg : undefined
+    };
+    await writeReviewNotifyLog(input.dependencies, {
+      ...baseLog,
+      userId: animatorUserId,
+      receiveId: animatorUserId,
+      status: "失败",
+      failedReason: formatNotifyFailedReason(result)
+    });
+    logReviewNotify(input, result, animatorUserId);
+    return result;
+  }
+}
+
+function resolveAnimatorUserId(
+  daily: DailyRecord,
+  people: BitableRecord<Person>[]
+) {
+  if (daily.userId) return daily.userId;
+
+  return people.find((record) => record.fields.name === daily.name)?.fields.userId || "";
+}
+
+function buildReviewNotifyText(input: {
+  daily: DailyRecord;
+  reviewerName: string;
+  reviewStatus: DailyRecord["status"];
+  reviewComment: string;
+  appUrl: string;
+}) {
+  return [
+    "你的日报已审核",
+    "",
+    `日期：${input.daily.date}`,
+    `日报类型：${input.daily.dailyType || DAILY_TYPES.production}`,
+    `审核结果：${input.reviewStatus}`,
+    `审核人：${input.reviewerName}`,
+    `审核回复：${input.reviewComment || "无"}`,
+    "",
+    "请进入日报系统查看详情：",
+    `${input.appUrl}/daily`
+  ].join("\n");
+}
+
+async function writeReviewNotifyLog(
+  dependencies: ReviewDependencies,
+  record: Parameters<typeof toPushLogFields>[0]
+) {
+  try {
+    await dependencies.createRecord("pushLogs", toPushLogFields(record));
+  } catch (error) {
+    console.warn("[Review notify push log failed]", {
+      reason: error instanceof Error ? error.message : "unknown_error"
+    });
+  }
+}
+
+function logReviewNotify(
+  input: {
+    daily: BitableRecord<DailyRecord>;
+    reviewerName: string;
+    reviewStatus: DailyRecord["status"];
+    reviewComment: string;
+  },
+  result: ReviewNotifyResult,
+  animatorUserId: string
+) {
+  console.info("[Review notify animator]", {
+    dailyRecordId: input.daily.recordId,
+    animatorUserId,
+    animatorName: input.daily.fields.name,
+    reviewerName: input.reviewerName,
+    reviewStatus: input.reviewStatus,
+    hasReviewComment: Boolean(input.reviewComment),
+    receiveIdType: "user_id",
+    status: result.status,
+    reason: result.reason,
+    feishuCode: result.feishuCode,
+    feishuMsg: result.feishuMsg
+  });
+}
+
+function formatNotifyFailedReason(result: ReviewNotifyResult) {
+  return [result.reason, result.feishuCode, result.feishuMsg]
+    .filter((value) => value !== undefined && value !== "")
+    .join(" | ");
 }
 
 export function buildVisiblePendingDailyRecords(

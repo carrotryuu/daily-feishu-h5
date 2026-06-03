@@ -23,9 +23,24 @@ export function buildDailySuccessDialog(
 }
 
 export function buildReviewSuccessDialog(): SuccessDialog {
+  return buildReviewSuccessDialogForPayload({});
+}
+
+export function buildReviewSuccessDialogForPayload(
+  payload: Record<string, unknown>
+): SuccessDialog {
+  const reviewNotify = payload.reviewNotify;
+  const notified =
+    reviewNotify &&
+    typeof reviewNotify === "object" &&
+    !Array.isArray(reviewNotify) &&
+    (reviewNotify as Record<string, unknown>).status === "success";
+
   return {
     title: "审核提交成功",
-    content: "审核结果已保存。"
+    content: notified
+      ? "审核结果已保存，并已通知动画师。"
+      : "审核结果已保存，但通知动画师失败，请手动提醒。"
   };
 }
 
