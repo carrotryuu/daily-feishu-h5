@@ -3,6 +3,7 @@ import { getEnv } from "@/lib/env";
 import { runReviewPush } from "@/lib/review-push-service";
 
 export const dynamic = "force-dynamic";
+const reviewPushRoutePath = "/api/cron/push-review";
 
 export async function GET(request: Request) {
   try {

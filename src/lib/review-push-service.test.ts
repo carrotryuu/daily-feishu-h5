@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import test, { type TestContext } from "node:test";
 import {
   DAILY_STATUS,
@@ -17,6 +18,10 @@ process.env.FEISHU_APP_SECRET ||= "app_secret";
 process.env.FEISHU_BASE_APP_TOKEN ||= "app_token";
 process.env.APP_URL ||= "http://localhost:3000";
 process.env.CRON_SECRET ||= "cron_secret";
+
+test("push-review route file exists", () => {
+  assert.equal(existsSync("src/app/api/cron/push-review/route.ts"), true);
+});
 
 test("push-review only targets enabled directors", () => {
   const plan = buildReviewPushPlan({

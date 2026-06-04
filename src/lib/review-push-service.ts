@@ -8,7 +8,6 @@ import {
 } from "./constants";
 import { createRecord } from "./bitable";
 import { addDays, formatDate, nowIso, today } from "./dates";
-import { getLoginUrl } from "./env";
 import { FeishuApiError, sendBotMessage } from "./feishu";
 import {
   getDailyRecords,
@@ -20,6 +19,8 @@ import {
 } from "./records";
 import { resolveEffectiveDailyGroup } from "./review-service";
 import type { BitableRecord, DailyRecord, Person, PushLogRecord } from "./types";
+
+const REVIEW_LOGIN_URL = "http://47.110.53.170/api/auth/login";
 
 export type ReviewPushSkipReason =
   | "today_not_review_day"
@@ -268,7 +269,7 @@ function buildReviewPushText(input: {
       : "",
     "",
     "请进入日报系统审核：",
-    getLoginUrl()
+    REVIEW_LOGIN_URL
   ]
     .filter((line) => line !== "")
     .join("\n");
