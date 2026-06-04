@@ -164,6 +164,19 @@ test("review result notify log does not duplicate daily fill reminder", () => {
   assert.equal(plan.targets[0].type, PUSH_TYPES.daily);
 });
 
+test("review reminder log does not duplicate daily fill reminder", () => {
+  const plan = buildPushPlan({
+    people: [person({ userId: "animator_1", role: ROLES.animator })],
+    logs: [pushLog("animator_1", PUSH_TYPES.review, "2026-06-02")],
+    daily: [],
+    date: "2026-06-02"
+  });
+
+  assert.equal(plan.skipped.length, 0);
+  assert.equal(plan.targets.length, 1);
+  assert.equal(plan.targets[0].type, PUSH_TYPES.daily);
+});
+
 test("force push ignores duplicate_push_today", () => {
   const plan = buildPushPlan({
     people: [person({ userId: "animator_1", role: ROLES.animator })],

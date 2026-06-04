@@ -514,18 +514,18 @@ function hiddenReviewReason(
   return "";
 }
 
-type GroupSource =
+export type GroupSource =
   | "daily_field"
   | "people_by_user_id"
   | "people_by_name"
   | "unresolved";
 
-type GroupResolution = {
+export type GroupResolution = {
   effectiveGroup: string;
   groupSource: GroupSource;
 };
 
-function resolveEffectiveDailyGroup(
+export function resolveEffectiveDailyGroup(
   record: BitableRecord<DailyRecord>,
   peopleByUserId: Map<string, Person>,
   peopleByName: Map<string, Person>
