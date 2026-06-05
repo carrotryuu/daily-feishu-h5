@@ -213,6 +213,39 @@ test("personal account submit syncs account current remaining credits from curre
   );
 });
 
+test("daily submit writes project name and project type to daily fields", async (t) => {
+  const mock = installDailySubmitFetchMock(t);
+
+  await submitDaily(
+    user,
+    productionInput({
+      projectName: "XX动画第一季",
+      projectType: "正式项目"
+    })
+  );
+
+  assert.equal(mock.dailyCreates.length, 1);
+  assert.equal(
+    mock.dailyCreates[0].fields[TABLE_FIELDS.daily.projectName],
+    "XX动画第一季"
+  );
+  assert.equal(
+    mock.dailyCreates[0].fields[TABLE_FIELDS.daily.projectType],
+    "正式项目"
+  );
+});
+
+test("daily submit succeeds when project is not selected and writes empty project fields", async (t) => {
+  const mock = installDailySubmitFetchMock(t);
+
+  const result = await submitDaily(user, productionInput());
+
+  assert.equal(result.recordId, "rec_daily_created");
+  assert.equal(mock.dailyCreates.length, 1);
+  assert.equal(mock.dailyCreates[0].fields[TABLE_FIELDS.daily.projectName], "");
+  assert.equal(mock.dailyCreates[0].fields[TABLE_FIELDS.daily.projectType], "");
+});
+
 test("shared account syncs same-day minimum remaining credits", async (t) => {
   const shared = sharedAccount();
   const mock = installDailySubmitFetchMock(t, {
@@ -441,6 +474,7 @@ function installDailySubmitFetchMock(
   const originalFetch = globalThis.fetch;
   const accountUpdates: Array<{ recordId: string; fields: Record<string, unknown> }> =
     [];
+  const dailyCreates: Array<{ fields: Record<string, unknown> }> = [];
   const counts = {
     accountRecords: 0
   };
@@ -555,6 +589,9 @@ function installDailySubmitFetchMock(
 
     if (url.includes("/tables/tbl_daily/records")) {
       if (method === "POST") {
+        dailyCreates.push({
+          fields: JSON.parse(String(init?.body)).fields
+        });
         return Response.json({
           code: 0,
           data: { record: { record_id: "rec_daily_created", fields: {} } }
@@ -581,7 +618,7 @@ function installDailySubmitFetchMock(
     resetBitableCachesForTest();
   });
 
-  return { accountUpdates, counts };
+  return { accountUpdates, dailyCreates, counts };
 }
 
 function accountFieldNames(missing: string[] = []) {

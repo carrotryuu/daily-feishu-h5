@@ -67,6 +67,26 @@ test("production daily payload submits accountRecordId as recordId", () => {
   assert.equal(payload.accountRecordId, sharedAccount.recordId);
 });
 
+test("daily submit payload includes selected project fields", () => {
+  const payload = buildDailySubmitPayload(
+    productionForm({
+      selectedProjectName: "XX动画第一季",
+      projectType: "正式项目"
+    }),
+    "2026-06-01"
+  );
+
+  assert.equal(payload.projectName, "XX动画第一季");
+  assert.equal(payload.projectType, "正式项目");
+});
+
+test("daily submit payload keeps project fields empty when project is not selected", () => {
+  const payload = buildDailySubmitPayload(productionForm(), "2026-06-01");
+
+  assert.equal(payload.projectName, "");
+  assert.equal(payload.projectType, "");
+});
+
 test("daily submit payload does not include accountName as submit key", () => {
   const payload = buildDailySubmitPayload(productionForm(), "2026-06-01");
 

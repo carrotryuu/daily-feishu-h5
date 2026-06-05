@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ROLES,
+  TABLE_FIELDS,
   YES_NO,
   normalizeEnabled,
   normalizeRole
@@ -22,4 +23,9 @@ test("normalizes enabled values from people table", () => {
   assert.equal(normalizeEnabled("在职"), YES_NO.yes);
   assert.equal(normalizeEnabled("true"), YES_NO.yes);
   assert.equal(normalizeEnabled("停用"), YES_NO.no);
+});
+
+test("daily table includes project field mappings", () => {
+  assert.equal(TABLE_FIELDS.daily.projectName, "项目名称");
+  assert.equal(TABLE_FIELDS.daily.projectType, "项目类型");
 });

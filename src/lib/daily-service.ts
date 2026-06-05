@@ -73,6 +73,8 @@ export type DailySubmitInput = {
   note?: string;
   summary?: string;
   nonProductionNote?: string;
+  projectName?: string;
+  projectType?: string;
 };
 
 export async function getDailyPageData(user: CurrentUser) {
@@ -147,6 +149,8 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
       account: "",
       platform: "",
       accountType: "",
+      projectName: input.projectName || "",
+      projectType: input.projectType || "",
       previousCredits: 0,
       newAccountStartCredits: 0,
       remainingCredits: 0,
@@ -234,6 +238,8 @@ export async function submitDaily(user: CurrentUser, input: DailySubmitInput) {
     roughCutSeconds,
     hasIssue,
     issueNote,
+    projectName: input.projectName || "",
+    projectType: input.projectType || "",
     includeRanking: decision.includeRanking
   });
 
@@ -281,6 +287,8 @@ export function buildProductionDailyRecord(input: {
   roughCutSeconds: number;
   hasIssue: boolean;
   issueNote: string;
+  projectName?: string;
+  projectType?: string;
   includeRanking: boolean;
 }): DailyRecord {
   return {
@@ -294,6 +302,8 @@ export function buildProductionDailyRecord(input: {
     account: input.account.accountName,
     platform: input.account.platform,
     accountType: input.account.accountType,
+    projectName: input.projectName || "",
+    projectType: input.projectType || "",
     previousCredits: input.previousCredits,
     newAccountStartCredits: input.changedAccount ? input.newAccountStartCredits : 0,
     remainingCredits: input.remainingCredits,
@@ -705,6 +715,8 @@ export function dailyListFieldsForClient(record: DailyRecord) {
     [TABLE_FIELDS.daily.date]: record.date,
     [TABLE_FIELDS.daily.name]: record.name,
     [TABLE_FIELDS.daily.account]: record.account,
+    [TABLE_FIELDS.daily.projectName]: record.projectName || "",
+    [TABLE_FIELDS.daily.projectType]: record.projectType || "",
     [TABLE_FIELDS.daily.status]: record.status || DAILY_STATUS.pending
   };
 }

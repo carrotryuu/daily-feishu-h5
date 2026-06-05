@@ -2,6 +2,8 @@ type Env = {
   feishuAppId: string;
   feishuAppSecret: string;
   feishuBaseAppToken: string;
+  projectBitableAppToken?: string;
+  projectTableId?: string;
   appUrl: string;
   cronSecret: string;
   devOpenId?: string;
@@ -28,6 +30,8 @@ export function getEnv(): Env {
     feishuAppId: required("FEISHU_APP_ID"),
     feishuAppSecret: required("FEISHU_APP_SECRET"),
     feishuBaseAppToken: required("FEISHU_BASE_APP_TOKEN"),
+    projectBitableAppToken: process.env.PROJECT_BITABLE_APP_TOKEN || undefined,
+    projectTableId: process.env.PROJECT_TABLE_ID || undefined,
     appUrl: required("APP_URL").replace(/\/$/, ""),
     cronSecret: required("CRON_SECRET"),
     devOpenId: process.env.DEV_OPEN_ID || undefined,

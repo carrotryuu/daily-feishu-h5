@@ -145,6 +145,8 @@ export const TABLE_FIELDS = {
     account: "账号",
     platform: "平台",
     accountType: "账号类型",
+    projectName: "项目名称",
+    projectType: "项目类型",
     previousCredits: "昨日剩余积分",
     newAccountStartCredits: "新账号起始积分",
     remainingCredits: "今日剩余积分",

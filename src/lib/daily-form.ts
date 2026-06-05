@@ -17,6 +17,8 @@ export type DailySubmitForm = {
   hasIssue: boolean;
   issueNote: string;
   nonProductionNote: string;
+  selectedProjectName?: string;
+  projectType?: string;
 };
 
 export function isProductionDaily(dailyType: string) {
@@ -93,6 +95,8 @@ export function buildDailySubmitPayload(
     workNote: form.nonProductionNote,
     note: form.nonProductionNote,
     summary: form.nonProductionNote,
-    nonProductionNote: form.nonProductionNote
+    nonProductionNote: form.nonProductionNote,
+    projectName: form.selectedProjectName || "",
+    projectType: form.projectType || ""
   };
 }

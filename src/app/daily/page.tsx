@@ -24,6 +24,8 @@ type DailyRow = {
   date: string;
   account: string;
   platform: string;
+  projectName?: string;
+  projectType?: string;
   remainingCredits: number;
   consumedCredits: number;
   roughCutSeconds: number;
@@ -45,6 +47,13 @@ type DailyData = {
   recentDaily: DailyRow[];
 };
 
+type ProjectOption = {
+  name: string;
+  type: string;
+  stage: string;
+  status: string;
+};
+
 const DAILY_SUBMIT_TIMEOUT_MS = 120_000;
 
 export default function DailyPage() {
@@ -54,9 +63,14 @@ export default function DailyPage() {
   const [successDialog, setSuccessDialog] = useState<SuccessDialog | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [projectsError, setProjectsError] = useState("");
+  const [projectsLoading, setProjectsLoading] = useState(true);
   const [form, setForm] = useState({
     dateMode: "today",
     dailyType: "生产日报",
+    selectedProjectName: "",
+    projectType: "",
     selectedAccountId: "",
     changedAccount: false,
     remainingCredits: "",
@@ -96,8 +110,30 @@ export default function DailyPage() {
     setLoading(false);
   }
 
+  async function loadProjects() {
+    setProjectsLoading(true);
+    setProjectsError("");
+    try {
+      const response = await fetch("/api/projects", { credentials: "include" });
+      const payload = await response.json().catch(() => ({}));
+      const loadedProjects = Array.isArray(payload.projects)
+        ? payload.projects.filter(isProjectOption)
+        : null;
+      if (!response.ok || !loadedProjects) {
+        throw new Error("项目列表加载失败，可先不选择项目。");
+      }
+      setProjects(loadedProjects);
+    } catch {
+      setProjects([]);
+      setProjectsError("项目列表加载失败，可先不选择项目。");
+    } finally {
+      setProjectsLoading(false);
+    }
+  }
+
   useEffect(() => {
     void load();
+    void loadProjects();
   }, []);
 
   const selectedAccount = useMemo(
@@ -109,6 +145,10 @@ export default function DailyPage() {
     form.selectedAccountId
   );
   const isProduction = isProductionDaily(form.dailyType);
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.name === form.selectedProjectName),
+    [form.selectedProjectName, projects]
+  );
   const selectedDate = form.dateMode === "today" ? data?.today : data?.yesterday;
   const previewPreviousCredits = useMemo(() => {
     if (!selectedAccount || !selectedDate) return undefined;
@@ -208,6 +248,8 @@ export default function DailyPage() {
           remainingCredits: Number(row.remainingCredits || 0),
           consumedCredits: Number(row.consumedCredits || 0),
           roughCutSeconds: Number(row.roughCutSeconds || 0),
+          projectName: String(row.projectName || ""),
+          projectType: String(row.projectType || ""),
           status: String(row.status || ""),
           includeRanking: String(row.includeRanking || "")
         },
@@ -292,6 +334,48 @@ export default function DailyPage() {
                 <option value="复盘日报">复盘日报</option>
                 <option value="其他">其他</option>
               </select>
+            </div>
+
+            <div className="field">
+              <label>项目名称</label>
+              <select
+                value={form.selectedProjectName}
+                onChange={(event) => {
+                  const project = projects.find(
+                    (item) => item.name === event.target.value
+                  );
+                  setForm({
+                    ...form,
+                    selectedProjectName: project?.name || "",
+                    projectType: project?.type || ""
+                  });
+                }}
+                disabled={!projects.length}
+              >
+                <option value="">选择项目（可选）</option>
+                {projects.map((project, index) => (
+                  <option
+                    key={`${project.name}-${project.type}-${index}`}
+                    value={project.name}
+                  >
+                    {projectOptionLabel(project)}
+                  </option>
+                ))}
+              </select>
+              {selectedProject?.type ? (
+                <span className="badge">
+                  {selectedProject.type === "demo" ? "Demo" : selectedProject.type}
+                </span>
+              ) : null}
+              {projectsLoading ? (
+                <span className="subtle">正在读取项目...</span>
+              ) : null}
+              {projectsError ? (
+                <span className="subtle">{projectsError}</span>
+              ) : null}
+              {!projectsLoading && !projectsError && projects.length === 0 ? (
+                <span className="subtle">暂无可选项目。</span>
+              ) : null}
             </div>
 
             {isProduction ? (
@@ -465,6 +549,7 @@ export default function DailyPage() {
                   <tr>
                     <th>类型</th>
                     <th>日期</th>
+                    <th>项目</th>
                     <th>账号</th>
                     <th>消耗</th>
                     <th>粗剪</th>
@@ -477,6 +562,7 @@ export default function DailyPage() {
                     <tr key={row.recordId}>
                       <td>{row.dailyType || "生产日报"}</td>
                       <td>{row.date}</td>
+                      <td>{row.projectName || "-"}</td>
                       <td>{row.account || "-"}</td>
                       <td>{row.consumedCredits}</td>
                       <td>{row.roughCutSeconds}</td>
@@ -558,4 +644,19 @@ function formatErrorValue(value: unknown) {
   if (typeof value === "string") return value || "-";
   if (typeof value === "number") return String(value);
   return "-";
+}
+
+function isProjectOption(value: unknown): value is ProjectOption {
+  if (!value || typeof value !== "object") return false;
+  const project = value as Record<string, unknown>;
+  return (
+    typeof project.name === "string" &&
+    typeof project.type === "string" &&
+    typeof project.stage === "string" &&
+    typeof project.status === "string"
+  );
+}
+
+function projectOptionLabel(project: ProjectOption) {
+  return project.type ? `${project.name}（${project.type}）` : project.name;
 }

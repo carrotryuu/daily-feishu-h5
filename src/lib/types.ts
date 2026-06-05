@@ -52,6 +52,8 @@ export type DailyRecord = {
   account: string;
   platform: string;
   accountType: AccountType | "";
+  projectName?: string;
+  projectType?: string;
   previousCredits: number;
   newAccountStartCredits: number;
   remainingCredits: number;

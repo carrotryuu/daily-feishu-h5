@@ -78,6 +78,12 @@ export type ListRecordsOptions = {
   useCache?: boolean;
 };
 
+export type BitableTableTarget = {
+  appToken: string;
+  tableId: string;
+  tableLabel?: string;
+};
+
 export class BitableError extends Error {
   status: number;
   code?: number;
@@ -114,7 +120,7 @@ const RECORD_CACHE_TTL_MS: Record<TableKey, number> = {
 
 let fieldMetaCache = new Map<
   string,
-  { createdAt: number; expiresAt: number; meta: TableFieldMeta; table: TableKey }
+  { createdAt: number; expiresAt: number; meta: TableFieldMeta; table: string }
 >();
 let recordCache = new Map<
   TableKey,
@@ -374,7 +380,7 @@ export async function tableHasField(table: TableKey, fieldName: string) {
 }
 
 export function resolveBitableRecordFields(
-  table: TableKey,
+  table: string,
   record: RawRecord,
   meta: TableFieldMeta
 ) {
@@ -396,7 +402,7 @@ export function resolveBitableRecordFields(
 function resolveFieldValue(
   value: unknown,
   optionNameById: Record<string, string>,
-  table: TableKey,
+  table: string,
   fieldName: string,
   recordId: string
 ): unknown {
@@ -433,7 +439,7 @@ function resolveFieldValue(
 function resolveOptionText(
   value: string,
   optionNameById: Record<string, string>,
-  table: TableKey,
+  table: string,
   fieldName: string,
   recordId: string
 ) {
@@ -453,6 +459,103 @@ function resolveOptionText(
   }
 
   return value;
+}
+
+async function getFieldMetaByTarget(target: BitableTableTarget): Promise<TableFieldMeta> {
+  const key = cacheKey(target.appToken, target.tableId);
+  const cached = fieldMetaCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    recordFieldsMetaPerf({ ms: 0, cacheHit: true });
+    return cached.meta;
+  }
+
+  const startedAt = performance.now();
+  const fields: RawField[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const query = new URLSearchParams({ page_size: "100" });
+    if (pageToken) query.set("page_token", pageToken);
+    const data = await bitableFetch<ListFieldsResponse>(
+      `/open-apis/bitable/v1/apps/${target.appToken}/tables/${target.tableId}/fields?${query.toString()}`
+    );
+
+    fields.push(...(data.items ?? []));
+    pageToken = data.has_more ? data.page_token : undefined;
+  } while (pageToken);
+
+  const fieldNames = new Set<string>();
+  const optionNameByField: Record<string, Record<string, string>> = {};
+
+  for (const field of fields) {
+    fieldNames.add(field.field_name);
+    const options = field.property?.options ?? field.options ?? [];
+    const optionMap: Record<string, string> = {};
+
+    for (const option of options) {
+      const id = option.id ?? (option as { option_id?: string }).option_id;
+      const name = option.name ?? option.text ?? option.value;
+      if (id && name) optionMap[id] = String(name);
+    }
+
+    if (Object.keys(optionMap).length > 0) {
+      optionNameByField[field.field_name] = optionMap;
+    }
+  }
+
+  const meta = { fieldNames, optionNameByField };
+  fieldMetaCache.set(key, {
+    createdAt: Date.now(),
+    expiresAt: Date.now() + FIELD_META_TTL_MS,
+    meta,
+    table: target.tableLabel ?? target.tableId
+  });
+  recordFieldsMetaPerf({ ms: performance.now() - startedAt, cacheHit: false });
+  return meta;
+}
+
+export async function listRecordsFromBitable<T>(
+  target: BitableTableTarget
+): Promise<BitableRecord<T>[]> {
+  const startedAt = performance.now();
+  const records: BitableRecord<T>[] = [];
+  const fieldMeta = await getFieldMetaByTarget(target);
+  let pageToken: string | undefined;
+
+  do {
+    const query = new URLSearchParams({ page_size: "500" });
+    if (pageToken) query.set("page_token", pageToken);
+    const data = await bitableFetch<ListResponse>(
+      `/open-apis/bitable/v1/apps/${target.appToken}/tables/${target.tableId}/records?${query.toString()}`
+    );
+
+    for (const item of data.items ?? []) {
+      records.push({
+        recordId: item.record_id,
+        fields: resolveBitableRecordFields(
+          target.tableLabel ?? target.tableId,
+          item,
+          fieldMeta
+        ) as T
+      });
+    }
+
+    pageToken = data.has_more ? data.page_token : undefined;
+  } while (pageToken);
+
+  recordTablePerf({
+    table: undefined,
+    ms: performance.now() - startedAt,
+    records: records.length,
+    cache: {
+      hit: false,
+      cacheKey: cacheKey(target.appToken, target.tableId),
+      ageMs: null,
+      ttlMs: 0,
+      missReason: "tableKeyMismatch"
+    }
+  });
+  return records;
 }
 
 async function writableFieldsForTable<T extends Record<string, unknown>>(
