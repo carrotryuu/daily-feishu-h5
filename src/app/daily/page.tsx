@@ -8,6 +8,8 @@ import {
   canSubmitDailyForm,
   findSelectedAccount,
   isProductionDaily,
+  projectOptionLabel,
+  projectTypeDisplayLabel,
   resolveSelectedAccountId,
   selectedAccountStartCredits,
   selectedAccountIdFromSelectValue,
@@ -52,6 +54,7 @@ type ProjectOption = {
   type: string;
   stage: string;
   status: string;
+  group: string;
 };
 
 const DAILY_SUBMIT_TIMEOUT_MS = 120_000;
@@ -71,6 +74,7 @@ export default function DailyPage() {
     dailyType: "生产日报",
     selectedProjectName: "",
     projectType: "",
+    projectGroup: "",
     selectedAccountId: "",
     changedAccount: false,
     remainingCredits: "",
@@ -347,7 +351,8 @@ export default function DailyPage() {
                   setForm({
                     ...form,
                     selectedProjectName: project?.name || "",
-                    projectType: project?.type || ""
+                    projectType: project?.type || "",
+                    projectGroup: project?.group || ""
                   });
                 }}
                 disabled={!projects.length}
@@ -364,7 +369,7 @@ export default function DailyPage() {
               </select>
               {selectedProject?.type ? (
                 <span className="badge">
-                  {selectedProject.type === "demo" ? "Demo" : selectedProject.type}
+                  {projectTypeDisplayLabel(selectedProject.type)}
                 </span>
               ) : null}
               {projectsLoading ? (
@@ -653,10 +658,7 @@ function isProjectOption(value: unknown): value is ProjectOption {
     typeof project.name === "string" &&
     typeof project.type === "string" &&
     typeof project.stage === "string" &&
-    typeof project.status === "string"
+    typeof project.status === "string" &&
+    typeof project.group === "string"
   );
-}
-
-function projectOptionLabel(project: ProjectOption) {
-  return project.type ? `${project.name}（${project.type}）` : project.name;
 }

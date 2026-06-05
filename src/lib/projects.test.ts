@@ -14,6 +14,7 @@ test("GET /api/projects returns projects array", async (t) => {
 
   assert.equal(response.status, 200);
   assert.ok(Array.isArray(payload.projects));
+  assert.equal(typeof payload.projects?.[0]?.group, "string");
 });
 
 test("/api/projects reads PROJECT_BITABLE_APP_TOKEN and PROJECT_TABLE_ID", async (t) => {
@@ -48,6 +49,30 @@ test("selectable projects filter empty names, review stage, and stopped status",
   assert.equal(projects.some((project) => project.status === "停止"), false);
 });
 
+test("/api/projects returns group from 所属小组 field", async (t) => {
+  installProjectsFetchMock(t, { groupFieldName: "所属小组" });
+
+  const projects = await getSelectableProjects();
+
+  assert.equal(projects[0].group, "孙导组");
+});
+
+test("/api/projects returns group from 项目小组 field", async (t) => {
+  installProjectsFetchMock(t, { groupFieldName: "项目小组" });
+
+  const projects = await getSelectableProjects();
+
+  assert.equal(projects[0].group, "孙导组");
+});
+
+test("/api/projects returns empty group when group field does not exist", async (t) => {
+  installProjectsFetchMock(t, { includeGroupField: false });
+
+  const projects = await getSelectableProjects();
+
+  assert.equal(projects[0].group, "");
+});
+
 test("allowed project stages and statuses can be returned", async (t) => {
   installProjectsFetchMock(t);
 
@@ -71,13 +96,19 @@ test("single select option ids are resolved to readable text", async (t) => {
   assert.equal(projects[0].type, "正式项目");
   assert.equal(projects[0].stage, "视频制作");
   assert.equal(projects[0].status, "正常");
+  assert.equal(projects[0].group, "孙导组");
   assert.equal(JSON.stringify(projects).includes("opt_"), false);
 });
 
-function installProjectsFetchMock(t: TestContext) {
+function installProjectsFetchMock(
+  t: TestContext,
+  options: { includeGroupField?: boolean; groupFieldName?: "所属小组" | "项目小组" } = {}
+) {
   resetBitableCachesForTest();
   const originalFetch = globalThis.fetch;
   const urls: string[] = [];
+  const includeGroupField = options.includeGroupField !== false;
+  const groupFieldName = options.groupFieldName ?? "所属小组";
 
   process.env.FEISHU_APP_ID = "app_id";
   process.env.FEISHU_APP_SECRET = "app_secret";
@@ -101,6 +132,21 @@ function installProjectsFetchMock(t: TestContext) {
     }
 
     if (url.includes("/tables/project_table_id/fields")) {
+      const groupField = includeGroupField
+        ? [
+            {
+              field_id: "fld_group",
+              field_name: groupFieldName,
+              property: {
+                options: [
+                  { id: "opt_sun", name: "孙导组" },
+                  { id: "opt_ma", name: "马导组" }
+                ]
+              }
+            }
+          ]
+        : [];
+
       return Response.json({
         code: 0,
         data: {
@@ -116,6 +162,7 @@ function installProjectsFetchMock(t: TestContext) {
                 ]
               }
             },
+            ...groupField,
             {
               field_id: "fld_stage",
               field_name: "当前阶段",
@@ -151,26 +198,78 @@ function installProjectsFetchMock(t: TestContext) {
         code: 0,
         data: {
           items: [
-            record("rec_empty_name", "", "opt_demo", "opt_video", "opt_normal"),
+            record(
+              "rec_empty_name",
+              "",
+              "opt_demo",
+              "opt_video",
+              "opt_normal",
+              "",
+              includeGroupField ? groupFieldName : undefined
+            ),
             record(
               "rec_video",
               "视频项目",
               "opt_formal",
               "opt_video",
-              "opt_normal"
+              "opt_normal",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined
             ),
             record(
               "rec_feedback",
               "反馈项目",
               "demo",
               "opt_feedback",
-              "opt_delay"
+              "opt_delay",
+              "马导组",
+              includeGroupField ? groupFieldName : undefined
             ),
-            record("rec_asset", "资产项目", "", "资产生成", ""),
-            record("rec_prepare", "筹备项目", "", "筹备", ""),
-            record("rec_review", "复盘项目", "opt_demo", "opt_review", "正常"),
-            record("rec_stopped", "停止项目", "opt_demo", "视频制作", "opt_stopped"),
-            record("rec_delay", "延期项目", "opt_demo", "opt_video", "延期")
+            record(
+              "rec_asset",
+              "资产项目",
+              "",
+              "资产生成",
+              "",
+              "",
+              includeGroupField ? groupFieldName : undefined
+            ),
+            record(
+              "rec_prepare",
+              "筹备项目",
+              "",
+              "筹备",
+              "",
+              "",
+              includeGroupField ? groupFieldName : undefined
+            ),
+            record(
+              "rec_review",
+              "复盘项目",
+              "opt_demo",
+              "opt_review",
+              "正常",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined
+            ),
+            record(
+              "rec_stopped",
+              "停止项目",
+              "opt_demo",
+              "视频制作",
+              "opt_stopped",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined
+            ),
+            record(
+              "rec_delay",
+              "延期项目",
+              "opt_demo",
+              "opt_video",
+              "延期",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined
+            )
           ],
           has_more: false
         }
@@ -195,7 +294,9 @@ function record(
   name: string,
   type: string,
   stage: string,
-  status: string
+  status: string,
+  group = "",
+  groupFieldName?: "所属小组" | "项目小组"
 ) {
   return {
     record_id: recordId,
@@ -203,7 +304,8 @@ function record(
       项目名称: name,
       项目类型: type,
       当前阶段: stage,
-      项目情况: status
+      项目情况: status,
+      ...(groupFieldName ? { [groupFieldName]: group } : {})
     }
   };
 }

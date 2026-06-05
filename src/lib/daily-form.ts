@@ -19,6 +19,7 @@ export type DailySubmitForm = {
   nonProductionNote: string;
   selectedProjectName?: string;
   projectType?: string;
+  projectGroup?: string;
 };
 
 export function isProductionDaily(dailyType: string) {
@@ -59,6 +60,23 @@ export function accountSelectOptionLabel(account: DailyFormAccount) {
 
 export function selectedAccountIdFromSelectValue(value: string) {
   return value;
+}
+
+export function projectTypeDisplayLabel(type: string) {
+  if (!type) return "未填写类型";
+  return type === "demo" ? "Demo" : type;
+}
+
+export function projectOptionLabel(project: {
+  name: string;
+  type: string;
+  group?: string;
+}) {
+  const group = project.group?.trim();
+  const details = group
+    ? `${projectTypeDisplayLabel(project.type)} · ${group}`
+    : projectTypeDisplayLabel(project.type);
+  return `${project.name}（${details}）`;
 }
 
 export function canSubmitDailyForm(

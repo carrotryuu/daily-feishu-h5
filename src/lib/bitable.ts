@@ -514,6 +514,10 @@ async function getFieldMetaByTarget(target: BitableTableTarget): Promise<TableFi
   return meta;
 }
 
+export async function getFieldNamesByBitableTarget(target: BitableTableTarget) {
+  return (await getFieldMetaByTarget(target)).fieldNames;
+}
+
 export async function listRecordsFromBitable<T>(
   target: BitableTableTarget
 ): Promise<BitableRecord<T>[]> {

@@ -5,6 +5,7 @@ import {
   accountSelectOptionValue,
   buildDailySubmitPayload,
   canSubmitDailyForm,
+  projectOptionLabel,
   selectedAccountStartCredits,
   selectedAccountIdFromSelectValue,
   type DailyFormAccount,
@@ -85,6 +86,65 @@ test("daily submit payload keeps project fields empty when project is not select
 
   assert.equal(payload.projectName, "");
   assert.equal(payload.projectType, "");
+});
+
+test("daily submit payload does not submit projectGroup", () => {
+  const payload = buildDailySubmitPayload(
+    productionForm({
+      selectedProjectName: "XX动画第一季",
+      projectType: "正式项目",
+      projectGroup: "孙导组"
+    }),
+    "2026-06-01"
+  );
+
+  assert.equal("projectGroup" in payload, false);
+});
+
+test("daily project option label includes type and group", () => {
+  assert.equal(
+    projectOptionLabel({
+      name: "XX动画第一季",
+      type: "正式项目",
+      group: "孙导组"
+    }),
+    "XX动画第一季（正式项目 · 孙导组）"
+  );
+  assert.equal(
+    projectOptionLabel({
+      name: "XX动画demo",
+      type: "demo",
+      group: "马导组"
+    }),
+    "XX动画demo（Demo · 马导组）"
+  );
+});
+
+test("daily project option label omits separator when group is empty", () => {
+  assert.equal(
+    projectOptionLabel({
+      name: "XX动画第一季",
+      type: "正式项目",
+      group: ""
+    }),
+    "XX动画第一季（正式项目）"
+  );
+  assert.equal(
+    projectOptionLabel({
+      name: "XX动画第一季",
+      type: "",
+      group: "孙导组"
+    }),
+    "XX动画第一季（未填写类型 · 孙导组）"
+  );
+  assert.equal(
+    projectOptionLabel({
+      name: "XX动画第一季",
+      type: "",
+      group: ""
+    }),
+    "XX动画第一季（未填写类型）"
+  );
 });
 
 test("daily submit payload does not include accountName as submit key", () => {
