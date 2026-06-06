@@ -22,6 +22,8 @@ export type DailySubmitForm = {
   projectGroup?: string;
 };
 
+export type ProjectTypeFilter = "all" | "demo" | "正式项目";
+
 export function isProductionDaily(dailyType: string) {
   return dailyType === "生产日报";
 }
@@ -77,6 +79,13 @@ export function projectOptionLabel(project: {
     ? `${projectTypeDisplayLabel(project.type)} · ${group}`
     : projectTypeDisplayLabel(project.type);
   return `${project.name}（${details}）`;
+}
+
+export function projectMatchesTypeFilter(
+  project: { type: string },
+  filter: ProjectTypeFilter
+) {
+  return filter === "all" || project.type === filter;
 }
 
 export function canSubmitDailyForm(

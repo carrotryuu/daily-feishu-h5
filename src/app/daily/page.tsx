@@ -8,12 +8,14 @@ import {
   canSubmitDailyForm,
   findSelectedAccount,
   isProductionDaily,
+  projectMatchesTypeFilter,
   projectOptionLabel,
   projectTypeDisplayLabel,
   resolveSelectedAccountId,
   selectedAccountStartCredits,
   selectedAccountIdFromSelectValue,
-  type DailyFormAccount
+  type DailyFormAccount,
+  type ProjectTypeFilter
 } from "@/lib/daily-form";
 import {
   buildDailySuccessDialog,
@@ -69,6 +71,8 @@ export default function DailyPage() {
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [projectsError, setProjectsError] = useState("");
   const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectTypeFilter, setProjectTypeFilter] =
+    useState<ProjectTypeFilter>("all");
   const [form, setForm] = useState({
     dateMode: "today",
     dailyType: "生产日报",
@@ -153,6 +157,13 @@ export default function DailyPage() {
     () => projects.find((project) => project.name === form.selectedProjectName),
     [form.selectedProjectName, projects]
   );
+  const visibleProjects = useMemo(
+    () =>
+      projects.filter((project) =>
+        projectMatchesTypeFilter(project, projectTypeFilter)
+      ),
+    [projectTypeFilter, projects]
+  );
   const selectedDate = form.dateMode === "today" ? data?.today : data?.yesterday;
   const previewPreviousCredits = useMemo(() => {
     if (!selectedAccount || !selectedDate) return undefined;
@@ -232,6 +243,24 @@ export default function DailyPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function updateProjectTypeFilter(filter: ProjectTypeFilter) {
+    setProjectTypeFilter(filter);
+    setForm((current) => {
+      const currentProject = projects.find(
+        (project) => project.name === current.selectedProjectName
+      );
+      if (!currentProject || projectMatchesTypeFilter(currentProject, filter)) {
+        return current;
+      }
+      return {
+        ...current,
+        selectedProjectName: "",
+        projectType: "",
+        projectGroup: ""
+      };
+    });
   }
 
   function appendSubmittedDaily(payload: Record<string, unknown>) {
@@ -341,11 +370,25 @@ export default function DailyPage() {
             </div>
 
             <div className="field">
+              <label>项目类型</label>
+              <select
+                value={projectTypeFilter}
+                onChange={(event) =>
+                  updateProjectTypeFilter(event.target.value as ProjectTypeFilter)
+                }
+              >
+                <option value="all">全部</option>
+                <option value="demo">Demo</option>
+                <option value="正式项目">正式项目</option>
+              </select>
+            </div>
+
+            <div className="field">
               <label>项目名称</label>
               <select
                 value={form.selectedProjectName}
                 onChange={(event) => {
-                  const project = projects.find(
+                  const project = visibleProjects.find(
                     (item) => item.name === event.target.value
                   );
                   setForm({
@@ -355,10 +398,10 @@ export default function DailyPage() {
                     projectGroup: project?.group || ""
                   });
                 }}
-                disabled={!projects.length}
+                disabled={!visibleProjects.length}
               >
                 <option value="">选择项目（可选）</option>
-                {projects.map((project, index) => (
+                {visibleProjects.map((project, index) => (
                   <option
                     key={`${project.name}-${project.type}-${index}`}
                     value={project.name}
@@ -379,7 +422,15 @@ export default function DailyPage() {
                 <span className="subtle">{projectsError}</span>
               ) : null}
               {!projectsLoading && !projectsError && projects.length === 0 ? (
-                <span className="subtle">暂无可选项目。</span>
+                <span className="subtle">
+                  暂无你所在小组的可选项目，可先不选择项目。
+                </span>
+              ) : null}
+              {!projectsLoading &&
+              !projectsError &&
+              projects.length > 0 &&
+              visibleProjects.length === 0 ? (
+                <span className="subtle">当前项目类型暂无可选项目。</span>
               ) : null}
             </div>
 

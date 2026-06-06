@@ -1,20 +1,29 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { GET as getProjectsRoute } from "../app/api/projects/route";
 import { getSelectableProjects } from "./projects";
 import { resetBitableCachesForTest } from "./bitable";
+import { ROLES, type Role } from "./constants";
+import type { CurrentUser } from "./types";
 
-test("GET /api/projects returns projects array", async (t) => {
+const projectsRouteSource = readFileSync(
+  join(process.cwd(), "src", "app", "api", "projects", "route.ts"),
+  "utf8"
+);
+
+test("GET /api/projects service returns projects array with group", async (t) => {
   installProjectsFetchMock(t);
 
-  const response = await getProjectsRoute();
-  const payload = (await response.json()) as {
-    projects?: Array<Record<string, string>>;
-  };
+  const projects = await getSelectableProjects(currentUser(ROLES.animator, "孙导组"));
 
-  assert.equal(response.status, 200);
-  assert.ok(Array.isArray(payload.projects));
-  assert.equal(typeof payload.projects?.[0]?.group, "string");
+  assert.ok(Array.isArray(projects));
+  assert.equal(typeof projects[0]?.group, "string");
+});
+
+test("GET /api/projects route filters with current user", () => {
+  assert.match(projectsRouteSource, /getCurrentUser\(\)/);
+  assert.match(projectsRouteSource, /getSelectableProjects\(user\)/);
 });
 
 test("/api/projects reads PROJECT_BITABLE_APP_TOKEN and PROJECT_TABLE_ID", async (t) => {
@@ -47,6 +56,81 @@ test("selectable projects filter empty names, review stage, and stopped status",
   assert.equal(projects.some((project) => project.name === ""), false);
   assert.equal(projects.some((project) => project.stage === "复盘"), false);
   assert.equal(projects.some((project) => project.status === "停止"), false);
+});
+
+test("/api/projects only returns same-group projects for animator", async (t) => {
+  installProjectsFetchMock(t);
+
+  const projects = await getSelectableProjects(currentUser(ROLES.animator, "孙导组"));
+
+  assert.deepEqual(
+    projects.map((project) => project.name),
+    ["视频项目", "延期项目"]
+  );
+  assert.equal(projects.every((project) => project.group === "孙导组"), true);
+});
+
+test("/api/projects only returns same-group projects for director", async (t) => {
+  installProjectsFetchMock(t);
+
+  const projects = await getSelectableProjects(currentUser(ROLES.director, "马导组"));
+
+  assert.deepEqual(
+    projects.map((project) => project.name),
+    ["反馈项目"]
+  );
+  assert.equal(projects.every((project) => project.group === "马导组"), true);
+});
+
+test("/api/projects returns all selectable projects for manager", async (t) => {
+  installProjectsFetchMock(t);
+
+  const projects = await getSelectableProjects(currentUser(ROLES.manager, "孙导组"));
+
+  assert.deepEqual(
+    projects.map((project) => project.name),
+    ["视频项目", "反馈项目", "资产项目", "筹备项目", "延期项目"]
+  );
+});
+
+test("empty project group is hidden from animator and visible to manager", async (t) => {
+  installProjectsFetchMock(t);
+
+  const animatorProjects = await getSelectableProjects(
+    currentUser(ROLES.animator, "孙导组")
+  );
+  const managerProjects = await getSelectableProjects(
+    currentUser(ROLES.manager, "孙导组")
+  );
+
+  assert.equal(animatorProjects.some((project) => !project.group), false);
+  assert.equal(managerProjects.some((project) => !project.group), true);
+});
+
+test("project group comparison normalizes spaces", async (t) => {
+  installProjectsFetchMock(t);
+
+  const projects = await getSelectableProjects(
+    currentUser(ROLES.animator, " 孙 导 组 ")
+  );
+
+  assert.deepEqual(
+    projects.map((project) => project.name),
+    ["视频项目", "延期项目"]
+  );
+});
+
+test("selectable projects filter finished stage and status values", async (t) => {
+  installProjectsFetchMock(t);
+
+  const projects = await getSelectableProjects(currentUser(ROLES.manager, "全部"));
+  const names = projects.map((project) => project.name);
+
+  assert.equal(names.includes("阶段完成项目"), false);
+  assert.equal(names.includes("情况完成项目"), false);
+  assert.equal(names.includes("情况已完成项目"), false);
+  assert.equal(names.includes("项目状态完成项目"), false);
+  assert.equal(names.includes("状态已完成项目"), false);
 });
 
 test("/api/projects returns group from 所属小组 field", async (t) => {
@@ -115,6 +199,8 @@ function installProjectsFetchMock(
   process.env.FEISHU_BASE_APP_TOKEN = "daily_app_token";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "cron_secret";
+  process.env.DEV_OPEN_ID = "animator_1";
+  process.env.FEISHU_TABLE_PEOPLE = "tbl_people";
   process.env.FEISHU_TABLE_DAILY = "tbl_daily";
   process.env.PROJECT_BITABLE_APP_TOKEN = "project_app_token";
   process.env.PROJECT_TABLE_ID = "project_table_id";
@@ -185,6 +271,43 @@ function installProjectsFetchMock(
                   { id: "opt_delay", name: "延期" },
                   { id: "opt_stopped", name: "停止" }
                 ]
+              }
+            }
+          ],
+          has_more: false
+        }
+      });
+    }
+
+    if (url.includes("/tables/tbl_people/fields")) {
+      return Response.json({
+        code: 0,
+        data: {
+          items: [
+            { field_id: "fld_people_user_id", field_name: "用户ID" },
+            { field_id: "fld_people_name", field_name: "姓名" },
+            { field_id: "fld_people_role", field_name: "角色" },
+            { field_id: "fld_people_group", field_name: "所属小组" },
+            { field_id: "fld_people_enabled", field_name: "是否启用" }
+          ],
+          has_more: false
+        }
+      });
+    }
+
+    if (url.includes("/tables/tbl_people/records")) {
+      return Response.json({
+        code: 0,
+        data: {
+          items: [
+            {
+              record_id: "person_animator",
+              fields: {
+                用户ID: "animator_1",
+                姓名: "动画师",
+                角色: ROLES.animator,
+                所属小组: "孙导组",
+                是否启用: "是"
               }
             }
           ],
@@ -269,6 +392,53 @@ function installProjectsFetchMock(
               "延期",
               "opt_sun",
               includeGroupField ? groupFieldName : undefined
+            ),
+            record(
+              "rec_stage_done",
+              "阶段完成项目",
+              "opt_demo",
+              "完成",
+              "正常",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined
+            ),
+            record(
+              "rec_status_done",
+              "情况完成项目",
+              "opt_demo",
+              "opt_video",
+              "完成",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined
+            ),
+            record(
+              "rec_status_done_text",
+              "情况已完成项目",
+              "opt_demo",
+              "opt_video",
+              "已完成",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined
+            ),
+            record(
+              "rec_project_state_done",
+              "项目状态完成项目",
+              "opt_demo",
+              "opt_video",
+              "正常",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined,
+              { 项目状态: "完成" }
+            ),
+            record(
+              "rec_state_done",
+              "状态已完成项目",
+              "opt_demo",
+              "opt_video",
+              "正常",
+              "opt_sun",
+              includeGroupField ? groupFieldName : undefined,
+              { 状态: "已完成" }
             )
           ],
           has_more: false
@@ -284,6 +454,8 @@ function installProjectsFetchMock(
     resetBitableCachesForTest();
     delete process.env.PROJECT_BITABLE_APP_TOKEN;
     delete process.env.PROJECT_TABLE_ID;
+    delete process.env.DEV_OPEN_ID;
+    delete process.env.FEISHU_TABLE_PEOPLE;
   });
 
   return { urls };
@@ -296,7 +468,8 @@ function record(
   stage: string,
   status: string,
   group = "",
-  groupFieldName?: "所属小组" | "项目小组"
+  groupFieldName?: "所属小组" | "项目小组",
+  extraFields: Record<string, unknown> = {}
 ) {
   return {
     record_id: recordId,
@@ -305,7 +478,22 @@ function record(
       项目类型: type,
       当前阶段: stage,
       项目情况: status,
-      ...(groupFieldName ? { [groupFieldName]: group } : {})
+      ...(groupFieldName ? { [groupFieldName]: group } : {}),
+      ...extraFields
+    }
+  };
+}
+
+function currentUser(role: Role, group: string): CurrentUser {
+  return {
+    sessionUserId: "user_1",
+    sessionSource: "dev_open_id",
+    person: {
+      userId: "user_1",
+      name: "测试用户",
+      role,
+      group,
+      enabled: "是"
     }
   };
 }

@@ -5,6 +5,7 @@ import {
   accountSelectOptionValue,
   buildDailySubmitPayload,
   canSubmitDailyForm,
+  projectMatchesTypeFilter,
   projectOptionLabel,
   selectedAccountStartCredits,
   selectedAccountIdFromSelectValue,
@@ -145,6 +146,15 @@ test("daily project option label omits separator when group is empty", () => {
     }),
     "XX动画第一季（未填写类型）"
   );
+});
+
+test("project type filter matches all, demo, and formal projects", () => {
+  assert.equal(projectMatchesTypeFilter({ type: "demo" }, "all"), true);
+  assert.equal(projectMatchesTypeFilter({ type: "正式项目" }, "all"), true);
+  assert.equal(projectMatchesTypeFilter({ type: "demo" }, "demo"), true);
+  assert.equal(projectMatchesTypeFilter({ type: "正式项目" }, "demo"), false);
+  assert.equal(projectMatchesTypeFilter({ type: "正式项目" }, "正式项目"), true);
+  assert.equal(projectMatchesTypeFilter({ type: "demo" }, "正式项目"), false);
 });
 
 test("daily submit payload does not include accountName as submit key", () => {
