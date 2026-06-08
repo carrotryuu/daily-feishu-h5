@@ -121,7 +121,7 @@ export const TABLE_FIELDS = {
     accountId: "账号ID",
     group: "所属小组",
     platform: "平台",
-    accountName: "账号名称",
+    accountName: "账号",
     accountType: "账号类型",
     accountStatus: "账号状态",
     animatorName: "绑定动画师",

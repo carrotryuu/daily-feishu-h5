@@ -56,6 +56,13 @@ test("account option label is display text, not the option value", () => {
   assert.notEqual(label, accountSelectOptionValue(sharedAccount));
 });
 
+test("account option label uses fallback when accountName is empty", () => {
+  assert.equal(
+    accountSelectOptionLabel({ ...sharedAccount, accountName: "" }),
+    "未填写账号 · 共用测试账号"
+  );
+});
+
 test("selecting an account stores selectedAccountId as recordId", () => {
   const selectedAccountId = selectedAccountIdFromSelectValue(sharedAccount.recordId);
 

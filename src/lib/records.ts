@@ -155,7 +155,7 @@ export function mapAccount(fields: RawFields): Account {
     accountId: text(fields[f.accountId]),
     group: normalizeFieldText(firstText(fields, [f.group, "小组", "组别"])),
     platform: isPlatformOption(platform) ? platform : "其他",
-    accountName: firstText(fields, [f.accountName, "账号", "accountName"]),
+    accountName: text(fields[f.accountName]),
     accountType: firstText(fields, [f.accountType, "账号类型"]) as Account["accountType"],
     accountStatus: firstText(fields, [
       f.accountStatus,

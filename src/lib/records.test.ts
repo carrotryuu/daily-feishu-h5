@@ -6,13 +6,20 @@ import {
 } from "./bitable";
 import {
   ACCOUNT_TYPES,
+  ACCOUNT_STATUS,
   DAILY_STATUS,
   DAILY_TYPES,
   ROLES,
   TABLE_FIELDS,
   YES_NO
 } from "./constants";
-import { mapAccount, mapDaily, mapPerson, toDailyFields } from "./records";
+import {
+  mapAccount,
+  mapDaily,
+  mapPerson,
+  toAccountFields,
+  toDailyFields
+} from "./records";
 
 test("maps account startCredits from supported Feishu field aliases", () => {
   assert.equal(mapAccount({ 起始积分: 11 }).startCredits, 11);
@@ -79,6 +86,30 @@ test("maps resolved account type option name", () => {
 
   assert.equal(account.accountName, "赵国微生产账号");
   assert.equal(account.accountType, ACCOUNT_TYPES.personal);
+});
+
+test("maps accountName only from 账号 field", () => {
+  assert.equal(
+    mapAccount({
+      账号: "标准账号",
+      账号名称: "旧字段账号"
+    }).accountName,
+    "标准账号"
+  );
+  assert.equal(mapAccount({ 账号名称: "旧字段账号" }).accountName, "");
+});
+
+test("writes accountName to 账号 field", () => {
+  const fields = toAccountFields({
+    group: "孙导组",
+    platform: "LIBTV",
+    accountName: "赵国微生产账号",
+    accountType: ACCOUNT_TYPES.personal,
+    accountStatus: ACCOUNT_STATUS.enabled
+  });
+
+  assert.equal(fields["账号"], "赵国微生产账号");
+  assert.equal("账号名称" in fields, false);
 });
 
 test("maps other period content from daily fields", () => {

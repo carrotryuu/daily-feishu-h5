@@ -124,6 +124,10 @@ export default function AccountPage() {
       setError("个人绑定账号必须选择绑定动画师");
       return;
     }
+    if (!form.accountName.trim()) {
+      setError("请填写账号");
+      return;
+    }
 
     setSaving(true);
     const response = await fetch("/api/account", {
@@ -192,9 +196,8 @@ export default function AccountPage() {
             </select>
           </div>
           <div className="field">
-            <label>账号名称</label>
+            <label>账号</label>
             <input
-              required
               value={form.accountName}
               onChange={(event) =>
                 setForm({ ...form, accountName: event.target.value })
@@ -294,7 +297,7 @@ export default function AccountPage() {
                   <tr key={account.recordId}>
                     <td>{account.group}</td>
                     <td>{account.platform}</td>
-                    <td>{account.accountName}</td>
+                    <td>{account.accountName || "未填写账号"}</td>
                     <td>{account.accountType}</td>
                     <td>
                       <span className="badge">{account.accountStatus}</span>

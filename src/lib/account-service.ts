@@ -60,6 +60,11 @@ export async function saveAccount(user: CurrentUser, input: AccountInput) {
     throw new Response("不能维护其他小组账号", { status: 403 });
   }
 
+  const accountName = input.accountName.trim();
+  if (!accountName) {
+    throw new Response("请填写账号", { status: 400 });
+  }
+
   const platform = input.platform.trim();
   if (!isPlatformOption(platform)) {
     throw new Response("平台只能选择 LIBTV、RUNNING HUB、FTITLE、UPDREAM、其他", {
@@ -86,6 +91,7 @@ export async function saveAccount(user: CurrentUser, input: AccountInput) {
 
   const fields = toAccountFields({
     ...input,
+    accountName,
     platform,
     animatorName: animator?.name || "",
     userId: animator?.userId || "",

@@ -29,3 +29,7 @@ test("daily table includes project field mappings", () => {
   assert.equal(TABLE_FIELDS.daily.projectName, "项目名称");
   assert.equal(TABLE_FIELDS.daily.projectType, "项目类型");
 });
+
+test("accounts table uses 账号 for accountName", () => {
+  assert.equal(TABLE_FIELDS.accounts.accountName, "账号");
+});
