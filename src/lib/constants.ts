@@ -7,12 +7,18 @@ export const ROLES = {
 
 export const ACCOUNT_TYPES = {
   personal: "个人绑定账号",
-  shared: "共用测试账号"
+  shared: "共享账号"
 } as const;
 
 export const ACCOUNT_STATUS = {
   enabled: "启用",
   disabled: "停用"
+} as const;
+
+export const ACCOUNT_ADMIN_PERMISSIONS = {
+  none: "无",
+  group: "本组账号管理员",
+  global: "全局账号管理员"
 } as const;
 
 export const PLATFORM_OPTIONS = [
@@ -60,6 +66,8 @@ export const K_WEIGHTS: Record<ReviewGrade, number> = {
 export type Role = (typeof ROLES)[keyof typeof ROLES];
 export type AccountType = (typeof ACCOUNT_TYPES)[keyof typeof ACCOUNT_TYPES];
 export type AccountStatus = (typeof ACCOUNT_STATUS)[keyof typeof ACCOUNT_STATUS];
+export type AccountAdminPermission =
+  (typeof ACCOUNT_ADMIN_PERMISSIONS)[keyof typeof ACCOUNT_ADMIN_PERMISSIONS] | "";
 export type Platform = (typeof PLATFORM_OPTIONS)[number];
 export type DailyStatus = (typeof DAILY_STATUS)[keyof typeof DAILY_STATUS];
 export type DailyType = (typeof DAILY_TYPES)[keyof typeof DAILY_TYPES];
@@ -104,6 +112,40 @@ export function normalizeEnabled(value: string): YesNo {
   return isEnabledValue(value) ? YES_NO.yes : YES_NO.no;
 }
 
+export function normalizeAccountType(value: string): AccountType | "" {
+  const normalized = value.trim();
+  if (normalized === ACCOUNT_TYPES.personal) return ACCOUNT_TYPES.personal;
+  if (
+    [
+      ACCOUNT_TYPES.shared,
+      "共享测试账号",
+      "共用测试账号",
+      "共用账号",
+      "测试账号"
+    ].includes(normalized)
+  ) {
+    return ACCOUNT_TYPES.shared;
+  }
+  return "";
+}
+
+export function normalizeAccountAdminPermission(
+  value: string
+): AccountAdminPermission {
+  const normalized = value.trim();
+  if (!normalized) return ACCOUNT_ADMIN_PERMISSIONS.none;
+  if (normalized === ACCOUNT_ADMIN_PERMISSIONS.group) {
+    return ACCOUNT_ADMIN_PERMISSIONS.group;
+  }
+  if (normalized === ACCOUNT_ADMIN_PERMISSIONS.global) {
+    return ACCOUNT_ADMIN_PERMISSIONS.global;
+  }
+  if (normalized === ACCOUNT_ADMIN_PERMISSIONS.none) {
+    return ACCOUNT_ADMIN_PERMISSIONS.none;
+  }
+  return "";
+}
+
 export function isPlatformOption(platform: string): platform is Platform {
   return (PLATFORM_OPTIONS as readonly string[]).includes(platform);
 }
@@ -114,6 +156,7 @@ export const TABLE_FIELDS = {
     name: "姓名",
     role: "角色",
     group: "所属小组",
+    accountAdminPermission: "账号管理权限",
     enabled: "是否启用",
     remark: "备注"
   },
@@ -122,7 +165,7 @@ export const TABLE_FIELDS = {
     group: "所属小组",
     platform: "平台",
     accountName: "账号",
-    accountType: "账号类型",
+    accountType: "类型",
     accountStatus: "账号状态",
     animatorName: "绑定动画师",
     userId: "用户ID",

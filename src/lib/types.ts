@@ -1,5 +1,6 @@
 import type {
   AccountStatus,
+  AccountAdminPermission,
   AccountType,
   DailyStatus,
   DailyType,
@@ -19,6 +20,7 @@ export type Person = {
   name: string;
   role: Role;
   group: string;
+  accountAdminPermission?: AccountAdminPermission;
   enabled: YesNo;
   remark?: string;
 };
@@ -28,7 +30,7 @@ export type Account = {
   group: string;
   platform: Platform;
   accountName: string;
-  accountType: AccountType;
+  accountType: AccountType | "";
   accountStatus: AccountStatus;
   animatorName?: string;
   userId?: string;

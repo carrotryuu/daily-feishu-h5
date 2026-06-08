@@ -76,6 +76,55 @@ test("maps people group option id to Sun group after bitable resolution", () => 
   assert.equal(person.group, "孙导组");
 });
 
+test("maps people account admin permission field", () => {
+  const person = mapPerson({
+    [TABLE_FIELDS.people.userId]: "animator_1",
+    [TABLE_FIELDS.people.name]: "动画师",
+    [TABLE_FIELDS.people.role]: ROLES.animator,
+    [TABLE_FIELDS.people.group]: "金鑫组",
+    [TABLE_FIELDS.people.accountAdminPermission]: "本组账号管理员",
+    [TABLE_FIELDS.people.enabled]: YES_NO.yes
+  });
+
+  assert.equal(person.accountAdminPermission, "本组账号管理员");
+});
+
+test("maps empty people account admin permission to none", () => {
+  const person = mapPerson({
+    [TABLE_FIELDS.people.userId]: "animator_1",
+    [TABLE_FIELDS.people.name]: "动画师",
+    [TABLE_FIELDS.people.role]: ROLES.animator,
+    [TABLE_FIELDS.people.group]: "金鑫组",
+    [TABLE_FIELDS.people.enabled]: YES_NO.yes
+  });
+
+  assert.equal(person.accountAdminPermission, "无");
+});
+
+test("maps people account admin permission option id after bitable resolution", () => {
+  const meta: TableFieldMeta = {
+    fieldNames: new Set([TABLE_FIELDS.people.accountAdminPermission]),
+    optionNameByField: {
+      [TABLE_FIELDS.people.accountAdminPermission]: {
+        opt_group_admin: "本组账号管理员"
+      }
+    }
+  };
+  const fields = resolveBitableRecordFields(
+    "people",
+    {
+      record_id: "person_1",
+      fields: {
+        [TABLE_FIELDS.people.accountAdminPermission]: "opt_group_admin"
+      }
+    },
+    meta
+  );
+  const person = mapPerson(fields);
+
+  assert.equal(person.accountAdminPermission, "本组账号管理员");
+});
+
 test("maps resolved account type option name", () => {
   const account = mapAccount({
     [TABLE_FIELDS.accounts.accountName]: "赵国微生产账号",
@@ -86,6 +135,30 @@ test("maps resolved account type option name", () => {
 
   assert.equal(account.accountName, "赵国微生产账号");
   assert.equal(account.accountType, ACCOUNT_TYPES.personal);
+});
+
+test("maps legacy shared account types to shared account", () => {
+  for (const legacyType of [
+    "共享测试账号",
+    "共用测试账号",
+    "共用账号",
+    "测试账号"
+  ]) {
+    assert.equal(
+      mapAccount({
+        [TABLE_FIELDS.accounts.accountType]: legacyType
+      }).accountType,
+      ACCOUNT_TYPES.shared
+    );
+  }
+});
+
+test("maps empty or unknown account type to empty string", () => {
+  assert.equal(mapAccount({ [TABLE_FIELDS.accounts.accountType]: "" }).accountType, "");
+  assert.equal(
+    mapAccount({ [TABLE_FIELDS.accounts.accountType]: "未知类型" }).accountType,
+    ""
+  );
 });
 
 test("maps accountName only from 账号 field", () => {
@@ -109,7 +182,9 @@ test("writes accountName to 账号 field", () => {
   });
 
   assert.equal(fields["账号"], "赵国微生产账号");
+  assert.equal(fields["类型"], ACCOUNT_TYPES.personal);
   assert.equal("账号名称" in fields, false);
+  assert.equal("账号类型" in fields, false);
 });
 
 test("maps other period content from daily fields", () => {

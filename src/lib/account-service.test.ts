@@ -15,7 +15,23 @@ test("saveAccount writes accountName to Feishu 账号 field when creating", asyn
   await saveAccount(manager(), accountInput());
 
   assert.equal(mock.accountCreates[0].fields["账号"], "赵国微生产账号");
+  assert.equal(mock.accountCreates[0].fields["类型"], ACCOUNT_TYPES.shared);
   assert.equal("账号名称" in mock.accountCreates[0].fields, false);
+  assert.equal("账号类型" in mock.accountCreates[0].fields, false);
+});
+
+test("saveAccount writes personal account type to Feishu 类型 field", async (t) => {
+  const mock = installAccountFetchMock(t);
+
+  await saveAccount(
+    manager(),
+    accountInput({
+      accountType: ACCOUNT_TYPES.personal,
+      userId: "animator_1"
+    })
+  );
+
+  assert.equal(mock.accountCreates[0].fields["类型"], ACCOUNT_TYPES.personal);
 });
 
 test("saveAccount updates accountName to Feishu 账号 field when editing", async (t) => {
@@ -25,7 +41,9 @@ test("saveAccount updates accountName to Feishu 账号 field when editing", asyn
 
   assert.equal(mock.accountUpdates[0].recordId, "rec_account_1");
   assert.equal(mock.accountUpdates[0].fields["账号"], "赵国微生产账号");
+  assert.equal(mock.accountUpdates[0].fields["类型"], ACCOUNT_TYPES.shared);
   assert.equal("账号名称" in mock.accountUpdates[0].fields, false);
+  assert.equal("账号类型" in mock.accountUpdates[0].fields, false);
 });
 
 test("account page data reads accountName from Feishu 账号 field", async (t) => {
@@ -34,6 +52,32 @@ test("account page data reads accountName from Feishu 账号 field", async (t) =
   const data = await getAccountPageData(manager());
 
   assert.equal(data.accounts[0].accountName, "赵国微生产账号");
+});
+
+test("account page data normalizes legacy shared account types", async (t) => {
+  installAccountFetchMock(t, {
+    accountTypes: ["共享测试账号", "共用测试账号", "共用账号", "测试账号"]
+  });
+
+  const data = await getAccountPageData(manager());
+
+  assert.deepEqual(
+    data.accounts.map((account) => account.accountType),
+    [
+      ACCOUNT_TYPES.shared,
+      ACCOUNT_TYPES.shared,
+      ACCOUNT_TYPES.shared,
+      ACCOUNT_TYPES.shared
+    ]
+  );
+});
+
+test("account page data keeps personal account type", async (t) => {
+  installAccountFetchMock(t, { accountType: ACCOUNT_TYPES.personal });
+
+  const data = await getAccountPageData(manager());
+
+  assert.equal(data.accounts[0].accountType, ACCOUNT_TYPES.personal);
 });
 
 test("saveAccount rejects empty accountName", async (t) => {
@@ -49,7 +93,195 @@ test("saveAccount rejects empty accountName", async (t) => {
   }
 });
 
-function installAccountFetchMock(t: TestContext) {
+test("saveAccount rejects legacy shared account type input", async (t) => {
+  installAccountFetchMock(t);
+
+  try {
+    await saveAccount(
+      manager(),
+      accountInput({ accountType: "共用测试账号" as never })
+    );
+    assert.fail("saveAccount should reject legacy accountType");
+  } catch (error) {
+    assert.ok(error instanceof Response);
+    assert.equal(error.status, 400);
+    assert.match(
+      await error.text(),
+      /账号类型只能选择共享账号或个人绑定账号/
+    );
+  }
+});
+
+test("ordinary animator cannot access account page", async (t) => {
+  installAccountFetchMock(t);
+
+  await assertRejectsResponse(
+    () => getAccountPageData(animator()),
+    403,
+    /你没有账号管理权限/
+  );
+});
+
+test("disabled user cannot access account page", async (t) => {
+  installAccountFetchMock(t);
+
+  await assertRejectsResponse(
+    () => getAccountPageData(disabledGroupAdminAnimator()),
+    403,
+    /你没有账号管理权限/
+  );
+});
+
+test("group account admin animator can access account page", async (t) => {
+  installAccountFetchMock(t);
+
+  const data = await getAccountPageData(groupAdminAnimator());
+
+  assert.equal(data.accountManageScope, "group");
+});
+
+test("group account admin sees only own group accounts", async (t) => {
+  installAccountFetchMock(t, {
+    accountGroups: ["孙导组", "马导组"]
+  });
+
+  const data = await getAccountPageData(groupAdminAnimator());
+
+  assert.deepEqual(
+    data.accounts.map((account) => account.group),
+    ["孙导组"]
+  );
+});
+
+test("group account admin can create only own group account", async (t) => {
+  const mock = installAccountFetchMock(t);
+
+  await saveAccount(groupAdminAnimator(), accountInput({ group: "孙 导 组" }));
+
+  assert.equal(mock.accountCreates[0].fields["所属小组"], "孙导组");
+});
+
+test("group account admin cannot create another group account", async (t) => {
+  const mock = installAccountFetchMock(t);
+
+  await assertRejectsResponse(
+    () => saveAccount(groupAdminAnimator(), accountInput({ group: "马导组" })),
+    403,
+    /只能管理本组账号/
+  );
+  assert.equal(mock.accountCreates.length, 0);
+});
+
+test("group account admin can edit own group account", async (t) => {
+  const mock = installAccountFetchMock(t);
+
+  await saveAccount(
+    groupAdminAnimator(),
+    accountInput({ recordId: "rec_account_1", group: "孙导组" })
+  );
+
+  assert.equal(mock.accountUpdates[0].recordId, "rec_account_1");
+});
+
+test("group account admin cannot edit another group account", async (t) => {
+  const mock = installAccountFetchMock(t, {
+    accountGroups: ["孙导组", "马导组"]
+  });
+
+  await assertRejectsResponse(
+    () =>
+      saveAccount(
+        groupAdminAnimator(),
+        accountInput({ recordId: "rec_account_2", group: "孙导组" })
+      ),
+    403,
+    /只能管理本组账号/
+  );
+  assert.equal(mock.accountUpdates.length, 0);
+});
+
+test("group account admin cannot move account to another group", async (t) => {
+  const mock = installAccountFetchMock(t);
+
+  await assertRejectsResponse(
+    () =>
+      saveAccount(
+        groupAdminAnimator(),
+        accountInput({ recordId: "rec_account_1", group: "马导组" })
+      ),
+    403,
+    /只能管理本组账号/
+  );
+  assert.equal(mock.accountUpdates.length, 0);
+});
+
+test("group account admin can disable own group account", async (t) => {
+  const mock = installAccountFetchMock(t);
+
+  await saveAccount(
+    groupAdminAnimator(),
+    accountInput({
+      recordId: "rec_account_1",
+      group: "孙导组",
+      accountStatus: ACCOUNT_STATUS.disabled
+    })
+  );
+
+  assert.equal(mock.accountUpdates[0].fields["账号状态"], ACCOUNT_STATUS.disabled);
+});
+
+test("global account admin can view and edit every group", async (t) => {
+  const mock = installAccountFetchMock(t, {
+    accountGroups: ["孙导组", "马导组"]
+  });
+
+  const data = await getAccountPageData(globalAdminAnimator());
+  await saveAccount(
+    globalAdminAnimator(),
+    accountInput({ recordId: "rec_account_2", group: "马导组" })
+  );
+
+  assert.equal(data.accountManageScope, "global");
+  assert.deepEqual(
+    data.accounts.map((account) => account.group),
+    ["孙导组", "马导组"]
+  );
+  assert.equal(mock.accountUpdates[0].recordId, "rec_account_2");
+});
+
+test("manager keeps global account management ability", async (t) => {
+  installAccountFetchMock(t, {
+    accountGroups: ["孙导组", "马导组"]
+  });
+
+  const data = await getAccountPageData(manager());
+
+  assert.equal(data.accountManageScope, "global");
+  assert.equal(data.accounts.length, 2);
+});
+
+test("director keeps existing own group account management ability", async (t) => {
+  installAccountFetchMock(t, {
+    accountGroups: ["孙导组", "马导组"]
+  });
+
+  const data = await getAccountPageData(director());
+
+  assert.equal(data.accountManageScope, "group");
+  assert.deepEqual(
+    data.accounts.map((account) => account.group),
+    ["孙导组"]
+  );
+});
+
+function installAccountFetchMock(
+  t: TestContext,
+  options: {
+    accountType?: string;
+    accountTypes?: string[];
+    accountGroups?: string[];
+  } = {}
+) {
   resetBitableCachesForTest();
   const originalFetch = globalThis.fetch;
   const accountCreates: Array<{ fields: Record<string, unknown> }> = [];
@@ -57,6 +289,11 @@ function installAccountFetchMock(t: TestContext) {
     recordId: string;
     fields: Record<string, unknown>;
   }> = [];
+  const accountTypes = options.accountTypes ?? [
+    options.accountType ?? ACCOUNT_TYPES.personal
+  ];
+  const accountGroups = options.accountGroups ?? accountTypes.map(() => "孙导组");
+  const rowCount = Math.max(accountTypes.length, accountGroups.length);
 
   process.env.FEISHU_APP_ID = "app_id";
   process.env.FEISHU_APP_SECRET = "app_secret";
@@ -87,6 +324,10 @@ function installAccountFetchMock(t: TestContext) {
             field("fld_people_name", TABLE_FIELDS.people.name),
             field("fld_people_role", TABLE_FIELDS.people.role),
             field("fld_people_group", TABLE_FIELDS.people.group),
+            field(
+              "fld_people_account_admin_permission",
+              TABLE_FIELDS.people.accountAdminPermission
+            ),
             field("fld_people_enabled", TABLE_FIELDS.people.enabled)
           ],
           has_more: false
@@ -157,21 +398,20 @@ function installAccountFetchMock(t: TestContext) {
       return Response.json({
         code: 0,
         data: {
-          items: [
-            {
-              record_id: "rec_account_1",
-              fields: {
-                [TABLE_FIELDS.accounts.group]: "孙导组",
-                [TABLE_FIELDS.accounts.platform]: "LIBTV",
-                [TABLE_FIELDS.accounts.accountName]: "赵国微生产账号",
-                [TABLE_FIELDS.accounts.accountType]: ACCOUNT_TYPES.personal,
-                [TABLE_FIELDS.accounts.accountStatus]: ACCOUNT_STATUS.enabled,
-                [TABLE_FIELDS.accounts.animatorName]: "赵国微",
-                [TABLE_FIELDS.accounts.userId]: "animator_1",
-                [TABLE_FIELDS.accounts.startCredits]: 100
-              }
+          items: Array.from({ length: rowCount }, (_, index) => ({
+            record_id: `rec_account_${index + 1}`,
+            fields: {
+              [TABLE_FIELDS.accounts.group]: accountGroups[index] ?? "孙导组",
+              [TABLE_FIELDS.accounts.platform]: "LIBTV",
+              [TABLE_FIELDS.accounts.accountName]: "赵国微生产账号",
+              [TABLE_FIELDS.accounts.accountType]:
+                accountTypes[index] ?? accountTypes[0] ?? ACCOUNT_TYPES.personal,
+              [TABLE_FIELDS.accounts.accountStatus]: ACCOUNT_STATUS.enabled,
+              [TABLE_FIELDS.accounts.animatorName]: "赵国微",
+              [TABLE_FIELDS.accounts.userId]: "animator_1",
+              [TABLE_FIELDS.accounts.startCredits]: 100
             }
-          ],
+          })),
           has_more: false
         }
       });
@@ -194,6 +434,21 @@ function field(fieldId: string, fieldName: string) {
   return { field_id: fieldId, field_name: fieldName };
 }
 
+async function assertRejectsResponse(
+  fn: () => Promise<unknown>,
+  status: number,
+  message: RegExp
+) {
+  try {
+    await fn();
+    assert.fail("expected request to reject");
+  } catch (error) {
+    assert.ok(error instanceof Response);
+    assert.equal(error.status, status);
+    assert.match(await error.text(), message);
+  }
+}
+
 function manager(): CurrentUser {
   return {
     sessionUserId: "manager_1",
@@ -203,7 +458,83 @@ function manager(): CurrentUser {
       name: "制片",
       role: ROLES.manager,
       group: "全部",
+      accountAdminPermission: "无",
       enabled: "是"
+    }
+  };
+}
+
+function director(): CurrentUser {
+  return {
+    sessionUserId: "director_1",
+    sessionSource: "dev_open_id",
+    person: {
+      userId: "director_1",
+      name: "导演",
+      role: ROLES.director,
+      group: "孙导组",
+      accountAdminPermission: "无",
+      enabled: "是"
+    }
+  };
+}
+
+function animator(): CurrentUser {
+  return {
+    sessionUserId: "animator_1",
+    sessionSource: "dev_open_id",
+    person: {
+      userId: "animator_1",
+      name: "动画师",
+      role: ROLES.animator,
+      group: "孙导组",
+      accountAdminPermission: "无",
+      enabled: "是"
+    }
+  };
+}
+
+function groupAdminAnimator(): CurrentUser {
+  return {
+    sessionUserId: "animator_1",
+    sessionSource: "dev_open_id",
+    person: {
+      userId: "animator_1",
+      name: "动画师",
+      role: ROLES.animator,
+      group: "孙导组",
+      accountAdminPermission: "本组账号管理员",
+      enabled: "是"
+    }
+  };
+}
+
+function globalAdminAnimator(): CurrentUser {
+  return {
+    sessionUserId: "animator_1",
+    sessionSource: "dev_open_id",
+    person: {
+      userId: "animator_1",
+      name: "动画师",
+      role: ROLES.animator,
+      group: "孙导组",
+      accountAdminPermission: "全局账号管理员",
+      enabled: "是"
+    }
+  };
+}
+
+function disabledGroupAdminAnimator(): CurrentUser {
+  return {
+    sessionUserId: "animator_1",
+    sessionSource: "dev_open_id",
+    person: {
+      userId: "animator_1",
+      name: "动画师",
+      role: ROLES.animator,
+      group: "孙导组",
+      accountAdminPermission: "本组账号管理员",
+      enabled: "否"
     }
   };
 }

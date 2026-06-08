@@ -1,6 +1,18 @@
 import Link from "next/link";
+import { canAccessAccountPage } from "@/lib/account-permissions";
+import { getCurrentUser } from "@/lib/auth";
 
-export default function HomePage() {
+async function canShowAccountEntry() {
+  try {
+    return canAccessAccountPage(await getCurrentUser());
+  } catch {
+    return false;
+  }
+}
+
+export default async function HomePage() {
+  const showAccountEntry = await canShowAccountEntry();
+
   return (
     <main className="page">
       <div className="page-title">
@@ -22,10 +34,12 @@ export default function HomePage() {
           <h2>日报审核</h2>
           <p className="subtle">导演和管理岗审核日报并打 K 等级。</p>
         </Link>
-        <Link className="card" href="/account">
-          <h2>账号维护</h2>
-          <p className="subtle">维护平台账号、状态和绑定关系。</p>
-        </Link>
+        {showAccountEntry ? (
+          <Link className="card" href="/account">
+            <h2>账号维护</h2>
+            <p className="subtle">维护平台账号、状态和绑定关系。</p>
+          </Link>
+        ) : null}
         <Link className="card" href="/ranking">
           <h2>排行榜</h2>
           <p className="subtle">查看个人、小组和全体月度排行。</p>

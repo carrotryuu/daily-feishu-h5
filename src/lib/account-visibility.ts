@@ -1,6 +1,7 @@
 import {
   ACCOUNT_TYPES,
-  isEnabledValue
+  isEnabledValue,
+  normalizeAccountType
 } from "./constants";
 import type { Account, BitableRecord, CurrentUser, Person } from "./types";
 
@@ -45,8 +46,7 @@ export function isPersonalAccount(account: Account) {
 export function isSharedAccount(account: Account) {
   const type = normalize(account.accountType);
   return (
-    account.accountType === ACCOUNT_TYPES.shared ||
-    type === "共用账号" ||
+    normalizeAccountType(account.accountType) === ACCOUNT_TYPES.shared ||
     type === "其他" ||
     type.includes("共用")
   );

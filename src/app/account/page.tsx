@@ -21,11 +21,13 @@ type Person = {
   name: string;
   role: string;
   group: string;
+  accountAdminPermission?: string;
   enabled: string;
 };
 
 type AccountData = {
   user: Person;
+  accountManageScope: "group" | "global";
   accounts: Account[];
   people: Person[];
 };
@@ -48,7 +50,7 @@ const emptyForm: AccountForm = {
   group: "",
   platform: PLATFORM_OPTIONS[0],
   accountName: "",
-  accountType: ACCOUNT_TYPES.personal,
+  accountType: ACCOUNT_TYPES.shared,
   accountStatus: "启用",
   animatorName: "",
   userId: "",
@@ -75,13 +77,16 @@ export default function AccountPage() {
     const response = await fetch("/api/account");
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      setError(payload.error || "无法读取账号数据");
+      setError(payload.reason || payload.error || "你没有账号管理权限。");
       return;
     }
-    setData({ ...payload, user: mePayload.user });
+    setData({ ...payload, user: payload.user || mePayload.user });
     setForm((current) => ({
       ...current,
-      group: current.group || mePayload.user.group
+      group:
+        payload.accountManageScope === "group"
+          ? payload.user.group
+          : current.group || payload.user.group
     }));
   }
 
@@ -90,9 +95,10 @@ export default function AccountPage() {
   }, []);
 
   function edit(account: Account) {
+    const group = data?.accountManageScope === "group" ? data.user.group : account.group;
     setForm({
       recordId: account.recordId,
-      group: account.group,
+      group,
       platform: (PLATFORM_OPTIONS as readonly string[]).includes(account.platform)
         ? account.platform
         : "其他",
@@ -135,6 +141,7 @@ export default function AccountPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...form,
+        group: data?.accountManageScope === "group" ? data.user.group : form.group,
         recordId: form.recordId || undefined,
         startCredits: Number(form.startCredits)
       })
@@ -152,11 +159,13 @@ export default function AccountPage() {
     await load();
   }
 
+  const isGroupAccountManager = data?.accountManageScope === "group";
+
   return (
     <main className="page">
       <div className="page-title">
         <div>
-          <h1>账号维护</h1>
+          <h1>账号管理</h1>
           <p className="subtle">
             {data ? `${data.user.name} · ${data.user.group}` : "平台账号"}
           </p>
@@ -169,13 +178,18 @@ export default function AccountPage() {
       {error ? <div className="notice error">{error}</div> : null}
       {message ? <div className="notice success">{message}</div> : null}
 
+      {data ? (
       <section className="grid">
         <form className="panel form" onSubmit={submit}>
           <h2>{form.recordId ? "编辑账号" : "新增账号"}</h2>
+          {isGroupAccountManager ? (
+            <div className="notice">你只能管理本组账号</div>
+          ) : null}
           <div className="field">
             <label>所属小组</label>
             <input
               required
+              readOnly={isGroupAccountManager}
               value={form.group}
               onChange={(event) => setForm({ ...form, group: event.target.value })}
             />
@@ -212,8 +226,8 @@ export default function AccountPage() {
                 setForm({ ...form, accountType: event.target.value })
               }
             >
-              <option>{ACCOUNT_TYPES.personal}</option>
               <option>{ACCOUNT_TYPES.shared}</option>
+              <option>{ACCOUNT_TYPES.personal}</option>
             </select>
           </div>
           <div className="field">
@@ -298,7 +312,7 @@ export default function AccountPage() {
                     <td>{account.group}</td>
                     <td>{account.platform}</td>
                     <td>{account.accountName || "未填写账号"}</td>
-                    <td>{account.accountType}</td>
+                    <td>{account.accountType || "未填写类型"}</td>
                     <td>
                       <span className="badge">{account.accountStatus}</span>
                     </td>
@@ -315,6 +329,7 @@ export default function AccountPage() {
           </div>
         </section>
       </section>
+      ) : null}
     </main>
   );
 }

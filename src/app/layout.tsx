@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { canAccessAccountPage } from "@/lib/account-permissions";
+import { getCurrentUser } from "@/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -7,9 +9,19 @@ export const metadata: Metadata = {
   description: "基于飞书多维表格的轻量版日报系统"
 };
 
-export default function RootLayout({
+async function canShowAccountEntry() {
+  try {
+    return canAccessAccountPage(await getCurrentUser());
+  } catch {
+    return false;
+  }
+}
+
+export default async function RootLayout({
   children
 }: Readonly<{ children: React.ReactNode }>) {
+  const showAccountEntry = await canShowAccountEntry();
+
   return (
     <html lang="zh-CN">
       <body>
@@ -21,7 +33,7 @@ export default function RootLayout({
             <nav className="nav" aria-label="主导航">
               <Link href="/daily">日报</Link>
               <Link href="/review">审核</Link>
-              <Link href="/account">账号</Link>
+              {showAccountEntry ? <Link href="/account">账号</Link> : null}
               <Link href="/ranking">排行</Link>
             </nav>
           </header>

@@ -6,6 +6,8 @@ import {
   YES_NO,
   isEnabledValue,
   isPlatformOption,
+  normalizeAccountAdminPermission,
+  normalizeAccountType,
   normalizeEnabled,
   normalizeRole,
   type ReviewGrade
@@ -143,6 +145,9 @@ export function mapPerson(fields: RawFields): Person {
     name: text(fields[f.name]),
     role: normalizeRole(text(fields[f.role])),
     group: normalizeFieldText(firstText(fields, [f.group, "小组", "组别"])),
+    accountAdminPermission: normalizeAccountAdminPermission(
+      text(fields[f.accountAdminPermission])
+    ),
     enabled: normalizeEnabled(text(fields[f.enabled])),
     remark: text(fields[f.remark])
   };
@@ -156,7 +161,7 @@ export function mapAccount(fields: RawFields): Account {
     group: normalizeFieldText(firstText(fields, [f.group, "小组", "组别"])),
     platform: isPlatformOption(platform) ? platform : "其他",
     accountName: text(fields[f.accountName]),
-    accountType: firstText(fields, [f.accountType, "账号类型"]) as Account["accountType"],
+    accountType: normalizeAccountType(text(fields[f.accountType])),
     accountStatus: firstText(fields, [
       f.accountStatus,
       "可用状态",
@@ -343,7 +348,7 @@ export function toAccountFields(record: Partial<Account>): RawFields {
       ? { [f.accountName]: record.accountName }
       : {}),
     ...(record.accountType !== undefined
-      ? { [f.accountType]: record.accountType }
+      ? { [f.accountType]: normalizeAccountType(record.accountType) }
       : {}),
     ...(record.accountStatus !== undefined
       ? { [f.accountStatus]: record.accountStatus }
@@ -406,6 +411,12 @@ export async function getPeople() {
         "people",
         TABLE_FIELDS.people.group,
         record.fields[TABLE_FIELDS.people.group],
+        record.recordId
+      );
+      warnUnresolvedOption(
+        "people",
+        TABLE_FIELDS.people.accountAdminPermission,
+        record.fields[TABLE_FIELDS.people.accountAdminPermission],
         record.recordId
       );
       return mapPerson(record.fields);

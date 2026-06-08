@@ -57,7 +57,9 @@ export function accountSelectOptionValue(account: DailyFormAccount) {
 }
 
 export function accountSelectOptionLabel(account: DailyFormAccount) {
-  return `${account.accountName || "未填写账号"} · ${account.accountType}`;
+  return `${account.accountName || "未填写账号"} · ${
+    account.accountType || "未填写类型"
+  }`;
 }
 
 export function selectedAccountIdFromSelectValue(value: string) {

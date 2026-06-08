@@ -17,7 +17,7 @@ const sharedAccount: DailyFormAccount = {
   recordId: "rec_shared_001",
   accountName: "其他",
   platform: "LIBTV",
-  accountType: "共用测试账号",
+  accountType: "共享账号",
   startCredits: 100
 };
 
@@ -52,14 +52,21 @@ test("account option value uses Feishu account recordId", () => {
 test("account option label is display text, not the option value", () => {
   const label = accountSelectOptionLabel(sharedAccount);
 
-  assert.equal(label, "其他 · 共用测试账号");
+  assert.equal(label, "其他 · 共享账号");
   assert.notEqual(label, accountSelectOptionValue(sharedAccount));
 });
 
 test("account option label uses fallback when accountName is empty", () => {
   assert.equal(
     accountSelectOptionLabel({ ...sharedAccount, accountName: "" }),
-    "未填写账号 · 共用测试账号"
+    "未填写账号 · 共享账号"
+  );
+});
+
+test("account option label uses fallback when accountType is empty", () => {
+  assert.equal(
+    accountSelectOptionLabel({ ...sharedAccount, accountType: "" }),
+    "其他 · 未填写类型"
   );
 });
 

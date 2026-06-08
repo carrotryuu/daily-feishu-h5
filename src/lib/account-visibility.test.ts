@@ -69,6 +69,20 @@ test("shared account remains visible when last user is someone else", () => {
   );
 });
 
+test("legacy shared account type remains visible after normalization", () => {
+  const visible = filterDailyAccountsForUser(currentUser, [
+    account("rec_legacy_shared", {
+      accountType: "共享测试账号" as never,
+      group: "A组"
+    })
+  ]);
+
+  assert.deepEqual(
+    visible.map((record) => record.recordId),
+    ["rec_legacy_shared"]
+  );
+});
+
 test("personal account bound to current userId is visible", () => {
   const visible = filterDailyAccountsForUser(currentUser, [
     account("rec_personal_user", {
